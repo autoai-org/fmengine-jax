@@ -6,12 +6,13 @@ from typing import Optional, Tuple
 from fmtrainer.modelling.common.conv import Conv1D
 from flax.linen import combine_masks, make_causal_mask
 from fmtrainer.modelling.utils.jax_utils import ACT2FN
+from flax.traverse_util import flatten_dict, unflatten_dict
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 from flax.linen.attention import dot_product_attention_weights
-from flax.traverse_util import flatten_dict, unflatten_dict
 
 from fmtrainer.modelling._base import FlaxPreTrainedModel
 from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
+
 from fmtrainer.modelling.language.output import FlaxBaseModelOutputWithPastAndCrossAttentions, FlaxCausalLMOutputWithCrossAttentions
 
 class FlaxGPT2Attention(nn.Module):
@@ -547,7 +548,7 @@ class FlaxGPT2Module(nn.Module):
 class FlaxGPT2Model(FlaxGPT2PreTrainedModel):
     module_class = FlaxGPT2Module
 
-class FlaxGPT2LMHeadModule(nn.Module):
+class FlaxGPT2ForCausalLMModule(nn.Module):
     config: GPT2Config
     dtype: jnp.dtype = jnp.float32
 
@@ -604,8 +605,8 @@ class FlaxGPT2LMHeadModule(nn.Module):
             cross_attentions=outputs.cross_attentions,
         )
 
-class FlaxGPT2LMHeadModel(FlaxGPT2PreTrainedModel):
-    module_class = FlaxGPT2LMHeadModule
+class FlaxGPT2ForCausalLM(FlaxGPT2PreTrainedModel):
+    module_class = FlaxGPT2ForCausalLMModule
 
     def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: Optional[jnp.DeviceArray] = None):
         # initializing the cache
