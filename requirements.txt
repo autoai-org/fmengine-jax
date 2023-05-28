@@ -1,1 +1,10 @@
 furo
+jax[cuda12_pip]
+dm-haiku
+optax
+chex
+tqdm
+flax
+transformers
+loguru
+--extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
