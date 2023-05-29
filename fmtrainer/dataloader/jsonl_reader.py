@@ -45,16 +45,16 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
                         "input_ids"
                     ]
                     self.token_buffer += curr_tokens
-                    while len(self.token_buffer) >= self.seq_len * self.batch_size:
+                    while len(self.token_buffer) >= self.chunk_size+1:
                         batch = {
                             "input_tokens": jnp.array(
                                 self.token_buffer[: self.chunk_size]
                             ).reshape((self.batch_size, -1)),
                             "target_tokens": jnp.array(
-                                self.token_buffer[1 : self.chunk_size + 1]
+                                self.token_buffer[1: self.chunk_size + 1]
                             ).reshape(self.batch_size, -1),
                         }
-                        self.token_buffer = self.token_buffer[self.chunk_size :]
+                        self.token_buffer = self.token_buffer[self.chunk_size:]
                         yield batch
             except Exception as e:
                 raise e
@@ -66,20 +66,3 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
         if self.it is None:
             self.it = self.get_stream()
         return self.it
-
-
-if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
-    data_files = {"train": ".cache/ft_data/train.jsonl"}
-    
-    dataset = load_dataset(
-        "json", data_files=data_files, split="train", streaming=True
-    ).shuffle(buffer_size=10_000, seed=42)
-
-    dataset = JSONLDatasetForAutoRegressiveModel(
-        dataset=dataset,
-        seq_len=1024,
-        doc_separator="",
-        batch_size=2,
-        tokenizer=tokenizer,
-    )

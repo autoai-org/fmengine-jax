@@ -15,8 +15,8 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
 # Create a hyperparameters
 hyper_params = HyperParams(
-    lr=1e-3,
-    steps=100,
+    lr=1e-4,
+    steps=5000,
     batch_size=16,
     warmup_steps=0,
     seq_len=1024,
@@ -35,9 +35,8 @@ trainer = Trainer(
 )
 
 # create dataset
-data_files = {"train": ".cache/ft_data/train.jsonl"}
 dataset = load_dataset(
-    "json", data_files=data_files, split="train", streaming=True
+    "openwebtext", split="train", streaming=True
 ).shuffle(buffer_size=10_000, seed=42)
 
 dataset = JSONLDatasetForAutoRegressiveModel(
