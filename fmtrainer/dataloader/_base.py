@@ -1,0 +1,2 @@
+class FMTrainerDataset(object):
+    pass

@@ -1,10 +1,14 @@
-furo
+tqdm
+loguru
 jax[cuda12_pip]
+flax
 dm-haiku
 optax
 chex
-tqdm
-flax
 transformers
-loguru
+tokenizers
+datasets[jax]
+autoflake
+yapf
+furo
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

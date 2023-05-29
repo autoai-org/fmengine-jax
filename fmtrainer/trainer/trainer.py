@@ -10,6 +10,7 @@ from flax.training.train_state import TrainState
 from fmtrainer.utils.global_norm import global_norm
 from fmtrainer.modelling._base import FlaxPreTrainedModel
 from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
+from fmtrainer.dataloader._base import FMTrainerDataset
 
 @chex.dataclass
 class HyperParams:
@@ -69,25 +70,26 @@ class Trainer:
                 rngs=self.jax_rng(self.model.config.rng_keys()),
             ).logits
             return self.loss_fn(
-                logits, batch["target_tokens"], batch["loss_masks"]
+                logits, batch["target_tokens"], None
             )
 
         grad_fn = jax.value_and_grad(loss_and_accuracy, has_aux=True)
-        (loss, accuracy), grads = grad_fn(train_state.params)
-        train_state = train_state.apply_gradients(grads=grads)
+        (loss, accuracy), grads = grad_fn(self.train_state.params)
+        self.train_state = self.train_state.apply_gradients(grads=grads)
         metrics = dict(
             loss=loss,
             accuracy=accuracy,
             learning_rate=self.hyperparams.lr,
             gradient_norm=global_norm(grads),
-            param_norm=global_norm(train_state.params),
+            param_norm=global_norm(self.train_state.params),
         )
         return metrics
     
     def fit(
         self,
-        batch_gen: Callable[[], TypedDict],
+        dataset: FMTrainerDataset,
     ):
         for i in range(self.hyperparams.steps):
-            metric = self._train_step(batch_gen())
-            print(metric)
+            batch = next(iter(dataset))
+            metrics = self._train_step(batch)
+            print(metrics)
