@@ -11,4 +11,5 @@ datasets[jax]
 autoflake
 yapf
 furo
+sphinx
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

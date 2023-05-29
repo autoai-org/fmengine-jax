@@ -1,3 +1,6 @@
+"""
+Trainer class
+"""
 import jax
 import chex
 import haiku as hk
