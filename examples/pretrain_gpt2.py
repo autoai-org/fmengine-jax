@@ -15,9 +15,9 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
 # Create a hyperparameters
 hyper_params = HyperParams(
-    lr=1e-4,
-    steps=10,
-    batch_size=8,
+    lr=1e-3,
+    steps=100,
+    batch_size=16,
     warmup_steps=0,
     seq_len=1024,
     seed=42,
@@ -25,7 +25,7 @@ hyper_params = HyperParams(
 )
 
 # create optimizer
-optimizer = optax.sgd(hyper_params.lr)
+optimizer = optax.adam(hyper_params.lr)
 
 trainer = Trainer(
     model=FlaxGPT2ForCausalLMModule(config=model_config),
@@ -39,6 +39,7 @@ data_files = {"train": ".cache/ft_data/train.jsonl"}
 dataset = load_dataset(
     "json", data_files=data_files, split="train", streaming=True
 ).shuffle(buffer_size=10_000, seed=42)
+
 dataset = JSONLDatasetForAutoRegressiveModel(
     dataset=dataset,
     seq_len=1024,
@@ -47,4 +48,5 @@ dataset = JSONLDatasetForAutoRegressiveModel(
     tokenizer=tokenizer,
 )
 
+# fit the model
 trainer.fit(dataset)

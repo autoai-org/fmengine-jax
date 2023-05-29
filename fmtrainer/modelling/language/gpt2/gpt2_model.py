@@ -652,8 +652,8 @@ class FlaxGPT2ForCausalLMModule(nn.Module):
     def __call__(
         self,
         input_ids,
-        attention_mask,
-        position_ids,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
         encoder_hidden_states: Optional[jnp.ndarray] = None,
         encoder_attention_mask: Optional[jnp.ndarray] = None,
         deterministic: bool = True,
@@ -662,6 +662,14 @@ class FlaxGPT2ForCausalLMModule(nn.Module):
         output_hidden_states: bool = False,
         return_dict: bool = True,
     ):
+        batch_size, seq_length = input_ids.shape
+        if attention_mask is None:
+            attention_mask = jnp.ones_like(input_ids)
+        if position_ids is None:
+            position_ids = jnp.broadcast_to(
+                jnp.clip(jnp.cumsum(attention_mask, axis=-1) - 1, a_min=0),
+                (batch_size, seq_length)
+            )
         outputs = self.transformer(
             input_ids,
             attention_mask,
