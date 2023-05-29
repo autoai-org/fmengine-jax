@@ -10,6 +10,6 @@ tokenizers
 datasets[jax]
 autoflake
 yapf
-furo
-sphinx
+mkdocstrings[crystal,python]
+mkdocs-material
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
