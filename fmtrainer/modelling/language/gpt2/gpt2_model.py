@@ -449,7 +449,7 @@ class FlaxGPT2BlockCollection(nn.Module):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            layer_outputs = block(
+            layer_outputs = block( 
                 hidden_states,
                 attention_mask,
                 encoder_hidden_states=encoder_hidden_states,

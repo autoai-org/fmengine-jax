@@ -1,4 +1,5 @@
 from transformers.configuration_utils import PretrainedConfig
+
 class GPT2Config(PretrainedConfig):
     """
     This is the configuration class to store the configuration of a [`GPT2Model`] or a [`TFGPT2Model`]. It is used to
@@ -155,3 +156,7 @@ class GPT2Config(PretrainedConfig):
         self.eos_token_id = eos_token_id
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
+    
+    @staticmethod
+    def rng_keys():
+        return ('params', 'dropout', 'fcm')
