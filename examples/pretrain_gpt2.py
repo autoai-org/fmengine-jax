@@ -2,7 +2,7 @@ import optax
 import jax.numpy as jnp
 
 from transformers import AutoTokenizer
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 
 from fmtrainer.trainer.trainer import Trainer, HyperParams
 from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
@@ -13,14 +13,17 @@ from fmtrainer.modelling.language.gpt2.gpt2_model import FlaxGPT2ForCausalLMModu
 model_config = GPT2Config()
 tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
-# Create a hyperparameters
+# Create a HyperParams object
 hyper_params = HyperParams(
     lr=1e-4,
     steps=5000,
-    batch_size=16,
+    batch_size=2,
     warmup_steps=0,
     seq_len=1024,
     seed=42,
+    ckpt_dir=".cache/checkpoints",
+    ckpt_step=100,
+    ckpt_max_to_keep=3,
     dtype=jnp.float32,
 )
 

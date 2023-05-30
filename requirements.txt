@@ -4,6 +4,7 @@ jax[cuda12_pip]
 flax
 dm-haiku
 optax
+safetensors
 chex
 transformers
 tokenizers
@@ -12,4 +13,6 @@ autoflake
 yapf
 mkdocstrings[crystal,python]
 mkdocs-material
+rich
+orbax-checkpoint
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

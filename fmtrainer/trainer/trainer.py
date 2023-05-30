@@ -1,18 +1,21 @@
 """
 Trainer class
 """
+import os
 import jax
 import chex
-import haiku as hk
-from tqdm import tqdm
 from jax import numpy as jnp
 from typing import Callable, TypedDict, Optional
-from fmtrainer.utils.rng import RNGGen
+
+import haiku as hk
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
+import orbax.checkpoint as checkpoint
 from optax import GradientTransformation
 from flax.training.train_state import TrainState
+
+from fmtrainer.utils.rng import RNGGen
 from fmtrainer.utils.global_norm import global_norm
 from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
 from fmtrainer.dataloader._base import FMTrainerDataset
 
 @chex.dataclass
@@ -23,8 +26,10 @@ class HyperParams:
     warmup_steps: int
     seq_len: int
     seed: int
+    ckpt_dir: str
+    ckpt_step: int = 100
+    ckpt_max_to_keep: int = 3
     dtype: jnp.dtype = jnp.float32
-
 
 class Trainer:
     def __init__(
@@ -41,6 +46,19 @@ class Trainer:
         self.loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray] = loss_fn
         self.hyperparams: HyperParams = hyperparams
         self.jax_rng: RNGGen = RNGGen.from_seed(self.hyperparams.seed)
+        options = checkpoint.CheckpointManagerOptions(save_interval_steps=self.hyperparams.ckpt_step, max_to_keep=self.hyperparams.ckpt_max_to_keep)
+        # if ckpt_dir is not empty, raise error
+        if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
+            raise ValueError(
+                f"Checkpoint directory {self.hyperparams.ckpt_dir} is not empty."
+            )
+        os.makedirs(self.hyperparams.ckpt_dir, exist_ok=True)
+        
+        self.ckpt_manager = checkpoint.CheckpointManager(
+            self.hyperparams.ckpt_dir,
+            checkpoint.Checkpointer(checkpoint.PyTreeCheckpointHandler()),
+            options
+        )
 
         self.params = self.model.init(
             input_ids=jnp.zeros(
@@ -92,7 +110,20 @@ class Trainer:
         self,
         dataset: FMTrainerDataset,
     ):
-        for i in range(self.hyperparams.steps):
-            batch = next(iter(dataset))
-            metrics = self._train_step(batch)
-            print(metrics)
+        progress = Progress(
+            SpinnerColumn(),
+            *Progress.get_default_columns(),
+            TimeElapsedColumn(),
+        )
+        with progress:
+            train_task = progress.add_task("[blue]Training...", total=self.hyperparams.steps)
+            for i in range(self.hyperparams.steps):
+                batch = next(iter(dataset))
+                metrics = self._train_step(batch)
+                if i>0:
+                    self.ckpt_manager.save(i, self.train_state)
+                progress.update(
+                    task_id=train_task,
+                    description=f"Training [loss={metrics['loss']:.4f}]",
+                    advance=1,
+                )
