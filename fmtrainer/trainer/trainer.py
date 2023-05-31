@@ -8,15 +8,16 @@ from jax import numpy as jnp
 from typing import Callable, TypedDict, Optional
 
 import haiku as hk
-from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
+from loguru import logger
 import orbax.checkpoint as checkpoint
 from optax import GradientTransformation
 from flax.training.train_state import TrainState
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from fmtrainer.utils.rng import RNGGen
 from fmtrainer.utils.global_norm import global_norm
-from fmtrainer.modelling._base import FlaxPreTrainedModel
 from fmtrainer.dataloader._base import FMTrainerDataset
+from fmtrainer.modelling._base import FlaxPreTrainedModel
 
 @chex.dataclass
 class HyperParams:
@@ -45,40 +46,29 @@ class Trainer:
         self.optimizer_args: dict = scheduler
         self.loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray] = loss_fn
         self.hyperparams: HyperParams = hyperparams
+        self.hyperparams.ckpt_dir = os.path.abspath(self.hyperparams.ckpt_dir)
         self.jax_rng: RNGGen = RNGGen.from_seed(self.hyperparams.seed)
-        options = checkpoint.CheckpointManagerOptions(save_interval_steps=self.hyperparams.ckpt_step, max_to_keep=self.hyperparams.ckpt_max_to_keep)
-        # if ckpt_dir is not empty, raise error
-        if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
-            raise ValueError(
-                f"Checkpoint directory {self.hyperparams.ckpt_dir} is not empty."
-            )
-        os.makedirs(self.hyperparams.ckpt_dir, exist_ok=True)
-        
+        options = checkpoint.CheckpointManagerOptions(
+            save_interval_steps=self.hyperparams.ckpt_step,
+            max_to_keep=self.hyperparams.ckpt_max_to_keep,
+            create=True,
+        )
         self.ckpt_manager = checkpoint.CheckpointManager(
-            self.hyperparams.ckpt_dir,
-            checkpoint.Checkpointer(checkpoint.PyTreeCheckpointHandler()),
+            self.hyperparams.ckpt_dir, {
+                'train_state': checkpoint.AsyncCheckpointer(checkpoint.PyTreeCheckpointHandler()),
+                'meta': checkpoint.AsyncCheckpointer(checkpoint.JSONCheckpointHandler()),
+            },
             options
         )
-
-        self.params = self.model.init(
-            input_ids=jnp.zeros(
-                (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                dtype=self.hyperparams.dtype,
-            ),
-            position_ids=jnp.zeros(
-                (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                dtype=self.hyperparams.dtype,
-            ),
-            attention_mask=jnp.ones(
-                (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                dtype=self.hyperparams.dtype,
-            ),
-            rngs=self.jax_rng(self.model.config.rng_keys()),
-        )
-        self.train_state: TrainState = TrainState.create(
-            params=self.params, tx=optimizer, apply_fn=None
-        )
-
+        if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
+            self.restore()
+        else:
+            self.initialize()
+        self.meta = {
+            'current_step': -1,
+            'current_loss': -1
+        }
+        
     def _train_step(
         self,
         batch: TypedDict,
@@ -96,7 +86,9 @@ class Trainer:
 
         grad_fn = jax.value_and_grad(loss_and_accuracy, has_aux=True)
         (loss, accuracy), grads = grad_fn(self.train_state.params)
+
         self.train_state = self.train_state.apply_gradients(grads=grads)
+        
         metrics = dict(
             loss=loss,
             accuracy=accuracy,
@@ -116,14 +108,87 @@ class Trainer:
             TimeElapsedColumn(),
         )
         with progress:
-            train_task = progress.add_task("[blue]Training...", total=self.hyperparams.steps)
-            for i in range(self.hyperparams.steps):
+            train_task = progress.add_task(
+                f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>",
+                total=self.hyperparams.steps,
+                start=self.meta['current_step']
+            )
+            for i in range(self.current_step, self.current_step+self.hyperparams.steps):
                 batch = next(iter(dataset))
                 metrics = self._train_step(batch)
+                self.meta = {
+                    'current_step': i,
+                    'current_loss': metrics['loss']
+                }
                 if i>0:
-                    self.ckpt_manager.save(i, self.train_state)
+                    self.ckpt_manager.save(i, items={
+                        'train_state': self.train_state,
+                        'meta': self.meta
+                    })
                 progress.update(
                     task_id=train_task,
-                    description=f"Training [loss={metrics['loss']:.4f}]",
+                    description=f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>",
                     advance=1,
                 )
+                
+        logger.info("Training Finished! Waiting for background processes to finish...")
+        self.ckpt_manager.wait_until_finished()
+    
+    def restore(self, step=-1):
+        empty_state = TrainState.create(
+            apply_fn=self.model.apply,
+            params=self.model.init(
+                input_ids=jnp.zeros(
+                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                    dtype=self.hyperparams.dtype,
+                ),
+                position_ids=jnp.zeros(
+                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                    dtype=self.hyperparams.dtype,
+                ),
+                attention_mask=jnp.ones(
+                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                    dtype=self.hyperparams.dtype,
+                ),
+                rngs=self.jax_rng(self.model.config.rng_keys()),
+            ),
+            tx=self.optimizer,
+        )
+        if step == -1:
+            step = self.ckpt_manager.latest_step()
+        
+        logger.info(f"Restoring from checkpoint {self.hyperparams.ckpt_dir}/{step}...")
+        restored = self.ckpt_manager.restore(step, items={'train_state': empty_state, 'meta': None})
+        self.train_state = restored['train_state']
+        self.meta = restored['meta']
+        self.params = self.train_state.params
+        self.optimizer_state = self.train_state.opt_state
+
+    def initialize(self):
+        self.meta = {
+            'current_step': 0,
+            'current_loss': -1
+        }
+        logger.info(f"Cannot load train state from checkpoint, initializing from scratch...")
+        
+        self.params = self.model.init(
+            input_ids=jnp.zeros(
+                (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                dtype=self.hyperparams.dtype,
+            ),
+            position_ids=jnp.zeros(
+                (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                dtype=self.hyperparams.dtype,
+            ),
+            attention_mask=jnp.ones(
+                (self.hyperparams.batch_size, self.hyperparams.seq_len),
+                dtype=self.hyperparams.dtype,
+            ),
+            rngs=self.jax_rng(self.model.config.rng_keys()),
+        )
+        self.optimizer_state = self.optimizer.init(self.params)
+        self.train_state: TrainState = TrainState.create(
+            params=self.params,
+            tx=self.optimizer,
+            apply_fn=None,
+        )

@@ -14,5 +14,6 @@ yapf
 mkdocstrings[crystal,python]
 mkdocs-material
 rich
-orbax-checkpoint
+orbax-checkpoint==0.2.2
+portpicker
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

@@ -1,6 +1,7 @@
+import jax
 import optax
+import portpicker
 import jax.numpy as jnp
-
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
@@ -21,7 +22,7 @@ hyper_params = HyperParams(
     warmup_steps=0,
     seq_len=1024,
     seed=42,
-    ckpt_dir=".cache/checkpoints",
+    ckpt_dir=".cache/checkpoints/",
     ckpt_step=100,
     ckpt_max_to_keep=3,
     dtype=jnp.float32,
@@ -29,6 +30,8 @@ hyper_params = HyperParams(
 
 # create optimizer
 optimizer = optax.adam(hyper_params.lr)
+port = portpicker.pick_unused_port()
+jax.distributed.initialize(f'localhost:{port}', num_processes=1, process_id=0)
 
 trainer = Trainer(
     model=FlaxGPT2ForCausalLMModule(config=model_config),
