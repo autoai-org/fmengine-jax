@@ -56,7 +56,7 @@ class Trainer:
         self.ckpt_manager = checkpoint.CheckpointManager(
             self.hyperparams.ckpt_dir, {
                 'train_state': checkpoint.AsyncCheckpointer(checkpoint.PyTreeCheckpointHandler()),
-                'meta': checkpoint.AsyncCheckpointer(checkpoint.JSONCheckpointHandler()),
+                'meta': checkpoint.Checkpointer(checkpoint.JsonCheckpointHandler()),
             },
             options
         )
@@ -113,7 +113,7 @@ class Trainer:
                 total=self.hyperparams.steps,
                 start=self.meta['current_step']
             )
-            for i in range(self.current_step, self.current_step+self.hyperparams.steps):
+            for i in range(self.meta['current_step'], self.meta['current_step']+self.hyperparams.steps):
                 batch = next(iter(dataset))
                 metrics = self._train_step(batch)
                 self.meta = {
