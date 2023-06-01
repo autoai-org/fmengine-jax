@@ -60,14 +60,14 @@ class Trainer:
             },
             options
         )
-        if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
-            self.restore()
-        else:
-            self.initialize()
         self.meta = {
             'current_step': -1,
             'current_loss': -1
         }
+        if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
+            self.restore()
+        else:
+            self.initialize()
         
     def _train_step(
         self,
@@ -108,8 +108,9 @@ class Trainer:
             TimeElapsedColumn(),
         )
         with progress:
+            task_description = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
             train_task = progress.add_task(
-                f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>",
+                task_description,
                 total=self.hyperparams.steps,
                 start=self.meta['current_step']
             )
@@ -118,16 +119,17 @@ class Trainer:
                 metrics = self._train_step(batch)
                 self.meta = {
                     'current_step': i,
-                    'current_loss': metrics['loss']
+                    'current_loss': float(metrics['loss'])
                 }
                 if i>0:
                     self.ckpt_manager.save(i, items={
                         'train_state': self.train_state,
                         'meta': self.meta
                     })
+                task_description = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
                 progress.update(
                     task_id=train_task,
-                    description=f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>",
+                    description=task_description,
                     advance=1,
                 )
                 
@@ -158,7 +160,9 @@ class Trainer:
             step = self.ckpt_manager.latest_step()
         
         logger.info(f"Restoring from checkpoint {self.hyperparams.ckpt_dir}/{step}...")
+        
         restored = self.ckpt_manager.restore(step, items={'train_state': empty_state, 'meta': None})
+        
         self.train_state = restored['train_state']
         self.meta = restored['meta']
         self.params = self.train_state.params
