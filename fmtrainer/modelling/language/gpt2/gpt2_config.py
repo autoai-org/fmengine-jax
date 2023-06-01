@@ -1,4 +1,7 @@
+from jax.sharding import PartitionSpec
+from jax.experimental.pjit import with_sharding_constraint
 from transformers.configuration_utils import PretrainedConfig
+
 
 class GPT2Config(PretrainedConfig):
     """
@@ -156,7 +159,35 @@ class GPT2Config(PretrainedConfig):
         self.eos_token_id = eos_token_id
 
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
-    
+
     @staticmethod
     def rng_keys():
         return ('params', 'dropout', 'fcm')
+
+    @staticmethod
+    def get_partition_rules():
+        return (
+            ('transformer/wte/embedding', PartitionSpec('mp', 'fsdp')),
+            ('transformer/spe/embedding', PartitionSpec('mp', 'fsdp')),
+            ('transformer/h/[0-9]+/ln_[0-9]+/scale', PartitionSpec()),
+            ('transformer/h/[0-9]+/ln_[0-9]+/bias', PartitionSpec()),
+            ('transformer/h/[0-9]+/attn/c_attn/kernel', PartitionSpec()),
+            ('transformer/h/[0-9]+/attn/c_attn/bias', PartitionSpec()),
+            ('transformer/h/[0-9]+/attn/c_proj/kernel', PartitionSpec()),
+            ('transformer/h/[0-9]+/attn/c_proj/bias', PartitionSpec()),
+
+
+            ('attn/(k_proj|q_proj|v_proj)/kernel', PartitionSpec('fsdp', 'mp')),
+            ('attn/out_proj/kernel', PartitionSpec('mp', 'fsdp')),
+            ('mlp/fc_in/kernel', PartitionSpec('fsdp', 'mp')),
+            ('mlp/fc_in/bias', PartitionSpec('mp')),
+            ('mlp/fc_out/kernel', PartitionSpec('mp', 'fsdp')),
+            ('mlp/fc_out/bias', PartitionSpec()),
+            ('ln_[0-9]+/bias', PartitionSpec()),
+            ('[0-9]+/ln_[0-9]+/scale', PartitionSpec()),
+            ('ln_f/bias', PartitionSpec()),
+            ('ln_f/scale', PartitionSpec()),
+            ('lm_head/kernel', PartitionSpec('fsdp', 'mp')),
+            ('lm_head/bias', PartitionSpec('mp')),
+            ('.*', PartitionSpec()),
+        )

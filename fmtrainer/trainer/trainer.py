@@ -5,8 +5,9 @@ import os
 import jax
 import chex
 from jax import numpy as jnp
+from jax.sharding import PartitionSpec as PS
 from typing import Callable, TypedDict, Optional
-
+from jax.experimental.pjit import with_sharding_constraint
 import haiku as hk
 from loguru import logger
 import orbax.checkpoint as checkpoint
@@ -48,6 +49,7 @@ class Trainer:
         self.hyperparams: HyperParams = hyperparams
         self.hyperparams.ckpt_dir = os.path.abspath(self.hyperparams.ckpt_dir)
         self.jax_rng: RNGGen = RNGGen.from_seed(self.hyperparams.seed)
+        
         options = checkpoint.CheckpointManagerOptions(
             save_interval_steps=self.hyperparams.ckpt_step,
             max_to_keep=self.hyperparams.ckpt_max_to_keep,
@@ -116,6 +118,7 @@ class Trainer:
             )
             for i in range(self.meta['current_step'], self.meta['current_step']+self.hyperparams.steps):
                 batch = next(iter(dataset))
+                batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
                 metrics = self._train_step(batch)
                 self.meta = {
                     'current_step': i,
