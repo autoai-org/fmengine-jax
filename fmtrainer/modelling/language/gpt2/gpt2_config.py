@@ -1,7 +1,7 @@
 from jax.sharding import PartitionSpec
+from fmtrainer.parallelism.device import get_jax_mesh
 from jax.experimental.pjit import with_sharding_constraint
 from transformers.configuration_utils import PretrainedConfig
-
 
 class GPT2Config(PretrainedConfig):
     """
@@ -169,16 +169,20 @@ class GPT2Config(PretrainedConfig):
         return (
             ('transformer/wte/embedding', PartitionSpec('mp', 'fsdp')),
             ('transformer/spe/embedding', PartitionSpec('mp', 'fsdp')),
-            ('transformer/h/[0-9]+/ln_[0-1]+/scale', PartitionSpec()),
-            ('transformer/h/[0-9]+/ln_[0-2]+/bias', PartitionSpec()),
-            ('transformer/h/[0-9]+/attn/c_attn/kernel', PartitionSpec()),
-            ('transformer/h/[0-9]+/attn/c_attn/bias', PartitionSpec()),
-            ('transformer/h/[0-9]+/attn/c_proj/kernel', PartitionSpec()),
-            ('transformer/h/[0-9]+/attn/c_proj/bias', PartitionSpec()),
-            ('transformer/h/[0-9]+/mlp/c_fc/bias', PartitionSpec("mp", "fsdp")),
-            ('transformer/h/[0-9]+/mlp/c_fc/kernel', PartitionSpec("mp", "fsdp")),
-            ('transformer/h/[0-9]+/mlp/c_proj/kernel', PartitionSpec("mp", "fsdp")),
-            ('transformer/h/[0-9]+/mlp/c_proj/bias', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/ln_[0-2]+/scale', PartitionSpec()),
+            ('transformer/h/[0-11]+/ln_[0-2]+/bias', PartitionSpec()),
+            ('transformer/h/[0-11]+/attn/c_attn/kernel', PartitionSpec()),
+            ('transformer/h/[0-11]+/attn/c_attn/bias', PartitionSpec()),
+            ('transformer/h/[0-11]+/attn/c_proj/kernel', PartitionSpec()),
+            ('transformer/h/[0-11]+/attn/c_proj/bias', PartitionSpec()),
+            ('transformer/h/[0-11]+/mlp/c_fc/bias', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/mlp/c_fc/kernel', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/mlp/c_proj/kernel', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/mlp/c_proj/bias', PartitionSpec("mp", "fsdp")),
             ('transformer/ln_f/bias', PartitionSpec("mp", "fsdp")),
             ('transformer/ln_f/scale', PartitionSpec("mp", "fsdp")),
+            ('.*', PartitionSpec()),
         )
+    @staticmethod
+    def get_jax_mesh(axis_dims):
+        return get_jax_mesh(axis_dims, ('dp', 'fsdp', 'mp'))
