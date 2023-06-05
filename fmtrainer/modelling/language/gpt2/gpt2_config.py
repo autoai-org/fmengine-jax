@@ -185,4 +185,4 @@ class GPT2Config(PretrainedConfig):
         )
     @staticmethod
     def get_jax_mesh(axis_dims):
-        return get_jax_mesh(axis_dims, ('dp', 'fsdp', 'mp'))
+        return get_jax_mesh(axis_dims, ('fsdp', 'mp'))
