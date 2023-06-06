@@ -17,13 +17,13 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 # Create a HyperParams object
 hyper_params = HyperParams(
     lr=1e-5,
-    steps=5000,
+    steps=50000,
     batch_size=2,
     warmup_steps=0,
     seq_len=1024,
     seed=42,
     ckpt_dir=".cache/checkpoints/",
-    ckpt_step=1000,
+    ckpt_step=5000,
     ckpt_max_to_keep=3,
     dtype=jnp.float32,
 )
@@ -41,7 +41,7 @@ trainer = LMTrainer(
 )
 
 # create dataset
-dataset = load_dataset("openwebtext", split="train",
+dataset = load_dataset("c4", split="train",
                        streaming=True).shuffle(buffer_size=10_000, seed=42)
 
 dataset = JSONLDatasetForAutoRegressiveModel(
