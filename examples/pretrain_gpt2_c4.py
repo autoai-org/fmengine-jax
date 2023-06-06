@@ -16,6 +16,7 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 
 # Create a HyperParams object
 hyper_params = HyperParams(
+    name="gpt2-falcon-refinedweb",
     lr=1e-5,
     steps=50000,
     batch_size=2,
@@ -41,7 +42,7 @@ trainer = LMTrainer(
 )
 
 # create dataset
-dataset = load_dataset("c4", split="train",
+dataset = load_dataset("tiiuae/falcon-refinedweb", split="train",
                        streaming=True).shuffle(buffer_size=10_000, seed=42)
 
 dataset = JSONLDatasetForAutoRegressiveModel(
@@ -50,6 +51,7 @@ dataset = JSONLDatasetForAutoRegressiveModel(
     doc_separator="",
     batch_size=2,
     tokenizer=tokenizer,
+    field='content',
 )
 
 # fit the model

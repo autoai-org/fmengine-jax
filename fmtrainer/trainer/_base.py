@@ -4,6 +4,7 @@ Trainer class
 
 import os
 import jax
+import wandb
 from jax import numpy as jnp
 from typing import Callable, TypedDict
 
@@ -60,6 +61,11 @@ class BaseTrainer():
             *Progress.get_default_columns(),
             TimeElapsedColumn(),
         )
+        run = wandb.init(
+            # Set the project where this run will be logged
+            project=self.hyperparams.name,
+            # Track hyperparameters and run metadata
+            config=self.hyperparams)
         mesh = self.model.config.get_jax_mesh(self.hyperparams.mesh_dims)
         with mesh:
             rng = RNGGen.from_seed(self.hyperparams.seed)()
@@ -82,6 +88,9 @@ class BaseTrainer():
                         'current_step': i,
                         'current_loss': float(metrics['loss'])
                     }
+                    wandb.log({
+                        "loss": float(metrics['loss'])
+                    })
                     if i > 0:
                         self.ckpt_manager.save(i, items={
                             'train_state': train_state,

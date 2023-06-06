@@ -3,6 +3,7 @@ import jax.numpy as jnp
 
 @chex.dataclass
 class HyperParams:
+    name: str
     lr: float
     steps: int
     batch_size: int

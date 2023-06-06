@@ -16,4 +16,5 @@ mkdocs-material
 rich
 orbax-checkpoint==0.2.2
 portpicker
+wandb
 --extra-index-url https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

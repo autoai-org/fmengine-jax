@@ -12,8 +12,9 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
         doc_separator: str = "",
         batch_size: int = 1,
         tokenizer: AutoTokenizer = None,
+        field:str = "text"
     ) -> None:
-        
+        self.field = field
         self.dataset = dataset.with_format("jax")
         self.seq_len = seq_len
         self.doc_separator = doc_separator
@@ -41,7 +42,7 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
             try:
                 for x in iter(self.dataset.skip(self.iter_count)):
                     self.iter_count += 1
-                    curr_tokens = self.tokenizer(self.doc_separator + x["text"])[
+                    curr_tokens = self.tokenizer(self.doc_separator + x[self.field])[
                         "input_ids"
                     ]
                     self.token_buffer += curr_tokens
