@@ -3,7 +3,6 @@ import os
 import jax
 import chex
 from jax import numpy as jnp
-from jax.experimental.pjit import pjit
 from jax.sharding import PartitionSpec as PS
 from typing import Callable, TypedDict, Optional
 from jax.experimental.pjit import with_sharding_constraint
@@ -17,7 +16,6 @@ from fmtrainer.utils.rng import RNGGen
 from fmtrainer.utils.global_norm import global_norm
 from fmtrainer.trainer.hyperparams import HyperParams
 from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.parallelism.partition import match_partition_rules, make_shard_and_gather_fns
 from fmtrainer.trainer._base import BaseTrainer
 
 
@@ -46,18 +44,18 @@ class LMTrainer(BaseTrainer):
     ):
         rng_gen = RNGGen(rng)
 
-        batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
-        
+        sharded_batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
+
         def loss_and_accuracy(params):
             logits = self.model.apply(
                 params,
-                batch["input_tokens"],
+                sharded_batch["input_tokens"],
                 deterministic=False,
                 rngs=rng_gen(self.model.config.rng_keys()),
             ).logits
             return self.loss_fn(
                 logits,
-                batch["target_tokens"],
+                sharded_batch["target_tokens"],
                 None
             )
 
@@ -75,8 +73,9 @@ class LMTrainer(BaseTrainer):
         )
         return train_state, rng_gen(), metrics
 
-    def _init_train_state(self):
-        self.params = self.model.init(
+    def _init_train_state(self, rng):
+        rng_gen = RNGGen(rng)
+        params = self.model.init(
             input_ids=jnp.zeros(
                 (self.hyperparams.batch_size, self.hyperparams.seq_len),
                 dtype=self.hyperparams.dtype,
@@ -89,15 +88,15 @@ class LMTrainer(BaseTrainer):
                 (self.hyperparams.batch_size, self.hyperparams.seq_len),
                 dtype=self.hyperparams.dtype,
             ),
-            rngs=self.jax_rng(self.model.config.rng_keys()),
+            rngs=rng_gen(self.model.config.rng_keys()),
         )
-        self.optimizer_state = self.optimizer.init(self.params)
-        self.train_state: TrainState = TrainState.create(
-            params=self.params,
+        # optimizer = self.optimizer.init(params)
+        train_state: TrainState = TrainState.create(
+            params=params,
             tx=self.optimizer,
             apply_fn=None,
         )
-        return self.train_state
+        return train_state
 
     def restore(self, step=-1):
         empty_state = TrainState.create(

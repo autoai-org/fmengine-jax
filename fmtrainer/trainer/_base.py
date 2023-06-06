@@ -64,11 +64,11 @@ class BaseTrainer():
         )
         mesh = self.model.config.get_jax_mesh(self.hyperparams.mesh_dims)
         with mesh:
+            rng = RNGGen.from_seed(self.hyperparams.seed)()
             if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
                 self.restore()
             else:
-                self.initialize()
-        
+                train_state = self.initialize(rng)
             with progress:
                 task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
                 train_task = progress.add_task(
@@ -76,8 +76,6 @@ class BaseTrainer():
                     total=self.hyperparams.steps,
                     start=self.meta['current_step']
                 )
-                rng = RNGGen.from_seed(self.hyperparams.seed)()
-                train_state = self.train_state
                 for i in range(self.meta['current_step'], self.meta['current_step']+self.hyperparams.steps):
                     batch = next(iter(dataset))
                     train_state, rng, metrics = self.sharded_train_step(train_state, rng, batch)
@@ -87,7 +85,7 @@ class BaseTrainer():
                     }
                     if i > 0:
                         self.ckpt_manager.save(i, items={
-                            'train_state': self.train_state,
+                            'train_state': train_state,
                             'meta': self.meta
                         })
                     task_description = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
@@ -104,14 +102,14 @@ class BaseTrainer():
     def restore(self):
         raise NotImplementedError
 
-    def initialize(self):
+    def initialize(self, rng):
         self.meta = {
             'current_step': 0,
             'current_loss': -1
         }
         logger.info(
             f"Cannot load train state from checkpoint, initializing from scratch...")
-        train_state_shapes = jax.eval_shape(self._init_train_state)
+        train_state_shapes = jax.eval_shape(self._init_train_state, rng)
         
         self.train_state_partition = match_partition_rules(
             self.model.config.get_partition_rules(), train_state_shapes
@@ -130,6 +128,7 @@ class BaseTrainer():
             out_shardings=(self.train_state_partition, PS(), PS()),
             donate_argnums=(0, 1),
         )
+        return self.sharded_init_fn(rng)
 
     def _train_step(train_state: TrainState, rng: any, batch: TypedDict) -> dict:
         """
