@@ -5,7 +5,7 @@ Trainer class
 import os
 import jax
 from jax import numpy as jnp
-from typing import Callable, TypedDict, Optional
+from typing import Callable, TypedDict
 
 import haiku as hk
 from loguru import logger
@@ -30,14 +30,12 @@ class BaseTrainer():
                  hyperparams: HyperParams,
                  scheduler: dict | None = None,
                 ) -> None:
-
         self.model: FlaxPreTrainedModel = model
         self.optimizer: GradientTransformation = optimizer
         self.optimizer_args: dict = scheduler
         self.loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray] = loss_fn
         self.hyperparams: HyperParams = hyperparams
         self.hyperparams.ckpt_dir = os.path.abspath(self.hyperparams.ckpt_dir)
-        self.jax_rng: RNGGen = RNGGen.from_seed(self.hyperparams.seed)
 
         options = checkpoint.CheckpointManagerOptions(
             save_interval_steps=self.hyperparams.ckpt_step,
@@ -65,8 +63,9 @@ class BaseTrainer():
         mesh = self.model.config.get_jax_mesh(self.hyperparams.mesh_dims)
         with mesh:
             rng = RNGGen.from_seed(self.hyperparams.seed)()
+            
             if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
-                self.restore()
+                train_state = self.restore(rng)
             else:
                 train_state = self.initialize(rng)
             with progress:
@@ -99,16 +98,7 @@ class BaseTrainer():
             logger.info(f"Waiting for background processes to finish...")
             self.ckpt_manager.wait_until_finished()
 
-    def restore(self):
-        raise NotImplementedError
-
-    def initialize(self, rng):
-        self.meta = {
-            'current_step': 0,
-            'current_loss': -1
-        }
-        logger.info(
-            f"Cannot load train state from checkpoint, initializing from scratch...")
+    def _sharding(self, rng):
         train_state_shapes = jax.eval_shape(self._init_train_state, rng)
         
         self.train_state_partition = match_partition_rules(
@@ -128,13 +118,41 @@ class BaseTrainer():
             out_shardings=(self.train_state_partition, PS(), PS()),
             donate_argnums=(0, 1),
         )
+
+    def initialize(self, rng):
+        self.meta = {
+            'current_step': 0,
+            'current_loss': -1
+        }
+        logger.info(
+            f"Cannot load train state from checkpoint, initializing from scratch...")
+        self._sharding(rng)
         return self.sharded_init_fn(rng)
 
+    def restore(self, rng, step=-1):
+        empty_state = self._init_train_state(rng)
+        if step == -1:
+            step = self.ckpt_manager.latest_step()
+        logger.info(
+            f"Restoring from checkpoint {self.hyperparams.ckpt_dir}/{step}...")
+        restored = self.ckpt_manager.restore(
+            step, items={'train_state': empty_state, 'meta': None})
+        self.meta = restored['meta']
+        train_state = restored['train_state']
+        self._sharding(rng)
+        return train_state
+    
+    def _init_train_state(self, rng):
+        # optimizer = self.optimizer.init(params)
+        train_state: TrainState = TrainState.create(
+            params=self._init_params(rng),
+            tx=self.optimizer,
+            apply_fn=None,
+        )
+        return train_state
+    
     def _train_step(train_state: TrainState, rng: any, batch: TypedDict) -> dict:
         """
         This function is pjit-ed - it should be stateless
         """
-        raise NotImplementedError
-
-    def _init_train_state(self) -> TrainState:
         raise NotImplementedError

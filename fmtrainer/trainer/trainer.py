@@ -20,6 +20,7 @@ class LMTrainer(DistributedTrainer):
         hyperparams: HyperParams,
         scheduler: Optional[dict] = None,
     ) -> None:
+        
         super().__init__(
             model,
             optimizer,
@@ -28,7 +29,7 @@ class LMTrainer(DistributedTrainer):
             scheduler
         )
 
-    def _init_train_state(self, rng):
+    def _init_params(self, rng):
         rng_gen = RNGGen(rng)
         params = self.model.init(
             input_ids=jnp.zeros(
@@ -45,44 +46,4 @@ class LMTrainer(DistributedTrainer):
             ),
             rngs=rng_gen(self.model.config.rng_keys()),
         )
-        # optimizer = self.optimizer.init(params)
-        train_state: TrainState = TrainState.create(
-            params=params,
-            tx=self.optimizer,
-            apply_fn=None,
-        )
-        return train_state
-
-    def restore(self, step=-1):
-        empty_state = TrainState.create(
-            apply_fn=self.model.apply,
-            params=self.model.init(
-                input_ids=jnp.zeros(
-                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                    dtype=self.hyperparams.dtype,
-                ),
-                position_ids=jnp.zeros(
-                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                    dtype=self.hyperparams.dtype,
-                ),
-                attention_mask=jnp.ones(
-                    (self.hyperparams.batch_size, self.hyperparams.seq_len),
-                    dtype=self.hyperparams.dtype,
-                ),
-                rngs=self.jax_rng(self.model.config.rng_keys()),
-            ),
-            tx=self.optimizer,
-        )
-        if step == -1:
-            step = self.ckpt_manager.latest_step()
-
-        logger.info(
-            f"Restoring from checkpoint {self.hyperparams.ckpt_dir}/{step}...")
-
-        restored = self.ckpt_manager.restore(
-            step, items={'train_state': empty_state, 'meta': None})
-
-        self.train_state = restored['train_state']
-        self.meta = restored['meta']
-        self.params = self.train_state.params
-        self.optimizer_state = self.train_state.opt_state
+        return params
