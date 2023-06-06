@@ -1,11 +1,5 @@
-
-import os
-import jax
-import chex
 from jax import numpy as jnp
-from jax.sharding import PartitionSpec as PS
 from typing import Callable, TypedDict, Optional
-from jax.experimental.pjit import with_sharding_constraint
 
 import haiku as hk
 from loguru import logger
@@ -13,13 +7,11 @@ from optax import GradientTransformation
 from flax.training.train_state import TrainState
 
 from fmtrainer.utils.rng import RNGGen
-from fmtrainer.utils.global_norm import global_norm
 from fmtrainer.trainer.hyperparams import HyperParams
 from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.trainer._base import BaseTrainer
+from fmtrainer.trainer.distributed import DistributedTrainer
 
-
-class LMTrainer(BaseTrainer):
+class LMTrainer(DistributedTrainer):
     def __init__(
         self,
         model: FlaxPreTrainedModel,
@@ -35,43 +27,6 @@ class LMTrainer(BaseTrainer):
             hyperparams,
             scheduler
         )
-
-    def _train_step(
-        self,
-        train_state: TrainState,
-        rng: any,
-        batch: TypedDict,
-    ):
-        rng_gen = RNGGen(rng)
-
-        sharded_batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
-
-        def loss_and_accuracy(params):
-            logits = self.model.apply(
-                params,
-                sharded_batch["input_tokens"],
-                deterministic=False,
-                rngs=rng_gen(self.model.config.rng_keys()),
-            ).logits
-            return self.loss_fn(
-                logits,
-                sharded_batch["target_tokens"],
-                None
-            )
-
-        grad_fn = jax.value_and_grad(loss_and_accuracy, has_aux=True)
-        
-        (loss, accuracy), grads = grad_fn(train_state.params)
-        train_state = train_state.apply_gradients(grads=grads)
-
-        metrics = dict(
-            loss=loss,
-            accuracy=accuracy,
-            learning_rate=self.hyperparams.lr,
-            gradient_norm=global_norm(grads),
-            param_norm=global_norm(train_state.params),
-        )
-        return train_state, rng_gen(), metrics
 
     def _init_train_state(self, rng):
         rng_gen = RNGGen(rng)

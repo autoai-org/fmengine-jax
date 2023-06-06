@@ -28,7 +28,7 @@ class BaseTrainer():
                  optimizer: GradientTransformation,
                  loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray],
                  hyperparams: HyperParams,
-                 scheduler: Optional[dict] = None,
+                 scheduler: dict | None = None,
                 ) -> None:
 
         self.model: FlaxPreTrainedModel = model
