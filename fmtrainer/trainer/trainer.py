@@ -1,6 +1,4 @@
-"""
-Trainer class
-"""
+
 import os
 import jax
 import chex
@@ -12,21 +10,18 @@ from jax.experimental.pjit import with_sharding_constraint
 
 import haiku as hk
 from loguru import logger
-import orbax.checkpoint as checkpoint
 from optax import GradientTransformation
 from flax.training.train_state import TrainState
-from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from fmtrainer.utils.rng import RNGGen
 from fmtrainer.utils.global_norm import global_norm
 from fmtrainer.trainer.hyperparams import HyperParams
-from fmtrainer.parallelism.device import get_jax_mesh
-from fmtrainer.dataloader._base import FMTrainerDataset
 from fmtrainer.modelling._base import FlaxPreTrainedModel
 from fmtrainer.parallelism.partition import match_partition_rules, make_shard_and_gather_fns
-from fmtrainer.trainer._base import FMTrainer
+from fmtrainer.trainer._base import BaseTrainer
 
-class Trainer(FMTrainer):
+
+class LMTrainer(BaseTrainer):
     def __init__(
         self,
         model: FlaxPreTrainedModel,
@@ -45,31 +40,40 @@ class Trainer(FMTrainer):
 
     def _train_step(
         self,
+        train_state: TrainState,
+        rng: any,
         batch: TypedDict,
     ):
+        rng_gen = RNGGen(rng)
+
+        batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
+        
         def loss_and_accuracy(params):
             logits = self.model.apply(
                 params,
                 batch["input_tokens"],
                 deterministic=False,
-                rngs=self.jax_rng(self.model.config.rng_keys()),
+                rngs=rng_gen(self.model.config.rng_keys()),
             ).logits
             return self.loss_fn(
-                logits, batch["target_tokens"], None
+                logits,
+                batch["target_tokens"],
+                None
             )
-        batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
+
         grad_fn = jax.value_and_grad(loss_and_accuracy, has_aux=True)
-        (loss, accuracy), grads = grad_fn(self.train_state.params)
-        self.train_state = self.train_state.apply_gradients(grads=grads)
+        
+        (loss, accuracy), grads = grad_fn(train_state.params)
+        train_state = train_state.apply_gradients(grads=grads)
 
         metrics = dict(
             loss=loss,
             accuracy=accuracy,
             learning_rate=self.hyperparams.lr,
             gradient_norm=global_norm(grads),
-            param_norm=global_norm(self.train_state.params),
+            param_norm=global_norm(train_state.params),
         )
-        return metrics
+        return train_state, rng_gen(), metrics
 
     def _init_train_state(self):
         self.params = self.model.init(
@@ -128,29 +132,3 @@ class Trainer(FMTrainer):
         self.meta = restored['meta']
         self.params = self.train_state.params
         self.optimizer_state = self.train_state.opt_state
-
-    def initialize(self):
-        self.meta = {
-            'current_step': 0,
-            'current_loss': -1
-        }
-        logger.info(
-            f"Cannot load train state from checkpoint, initializing from scratch...")
-        train_state_shapes = jax.eval_shape(self._init_train_state)
-        self.train_state_partition = match_partition_rules(
-            self.model.config.get_partition_rules(), train_state_shapes
-        )
-        self.shard_fns, self.gather_fns = make_shard_and_gather_fns(
-            self.train_state_partition, train_state_shapes
-        )
-        self.sharded_init_fn = pjit(
-            self._init_train_state,
-            in_shardings=PS(),
-            out_shardings=self.train_state_partition
-        )
-        self.sharded_train_step = pjit(
-            self._train_step,
-            in_shardings=(self.train_state_partition, PS(), PS()),
-            out_shardings=(self.train_state_partition, PS(), PS()),
-            donate_argnums=(0, 1),
-        )

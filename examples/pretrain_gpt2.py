@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from fmtrainer.trainer.trainer import Trainer, HyperParams
+from fmtrainer.trainer.trainer import LMTrainer, HyperParams
 from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
 from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
 from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
@@ -33,7 +33,7 @@ optimizer = optax.adam(hyper_params.lr)
 port = portpicker.pick_unused_port()
 jax.distributed.initialize(f'localhost:{port}', num_processes=1, process_id=0)
 
-trainer = Trainer(
+trainer = LMTrainer(
     model=FlaxGPT2ForCausalLMModule(config=model_config),
     optimizer=optimizer,
     loss_fn=cross_entropy_loss_and_accuracy,
@@ -41,9 +41,8 @@ trainer = Trainer(
 )
 
 # create dataset
-dataset = load_dataset(
-    "openwebtext", split="train", streaming=True
-).shuffle(buffer_size=10_000, seed=42)
+dataset = load_dataset("openwebtext", split="train",
+                       streaming=True).shuffle(buffer_size=10_000, seed=42)
 
 dataset = JSONLDatasetForAutoRegressiveModel(
     dataset=dataset,

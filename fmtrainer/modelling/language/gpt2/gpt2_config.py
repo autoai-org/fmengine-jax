@@ -175,14 +175,14 @@ class GPT2Config(PretrainedConfig):
             ('transformer/h/[0-11]+/attn/c_attn/bias', PartitionSpec()),
             ('transformer/h/[0-11]+/attn/c_proj/kernel', PartitionSpec()),
             ('transformer/h/[0-11]+/attn/c_proj/bias', PartitionSpec()),
-            ('transformer/h/[0-11]+/mlp/c_fc/bias', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/mlp/c_fc/bias', PartitionSpec()),
             ('transformer/h/[0-11]+/mlp/c_fc/kernel', PartitionSpec("mp", "fsdp")),
             ('transformer/h/[0-11]+/mlp/c_proj/kernel', PartitionSpec("mp", "fsdp")),
-            ('transformer/h/[0-11]+/mlp/c_proj/bias', PartitionSpec("mp", "fsdp")),
-            ('transformer/ln_f/bias', PartitionSpec("mp", "fsdp")),
-            ('transformer/ln_f/scale', PartitionSpec("mp", "fsdp")),
+            ('transformer/h/[0-11]+/mlp/c_proj/bias', PartitionSpec()),
+            ('transformer/ln_f/bias', PartitionSpec()),
+            ('transformer/ln_f/scale', PartitionSpec()),
             ('.*', PartitionSpec()),
         )
     @staticmethod
     def get_jax_mesh(axis_dims):
-        return get_jax_mesh(axis_dims, ('fsdp', 'mp'))
+        return get_jax_mesh(axis_dims, ('dp', 'fsdp', 'mp'))
