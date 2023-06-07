@@ -3,7 +3,6 @@ loguru
 flax
 dm-haiku
 optax
-safetensors
 chex
 transformers
 tokenizers
@@ -13,6 +12,6 @@ yapf
 mkdocstrings[crystal,python]
 mkdocs-material
 rich
-orbax-checkpoint==0.2.2
+orbax-checkpoint
 portpicker
 wandb
