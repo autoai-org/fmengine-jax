@@ -3,3 +3,4 @@
 .cache/
 docs/build
 wandb/
+*.sif
