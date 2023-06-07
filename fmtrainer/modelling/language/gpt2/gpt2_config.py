@@ -1,6 +1,5 @@
 from jax.sharding import PartitionSpec
 from fmtrainer.parallelism.device import get_jax_mesh
-from jax.experimental.pjit import with_sharding_constraint
 from transformers.configuration_utils import PretrainedConfig
 
 class GPT2Config(PretrainedConfig):

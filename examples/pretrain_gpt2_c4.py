@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from fmtrainer.trainer.trainer import LMTrainer, HyperParams
+from fmtrainer.trainer.trainer import ShardedLMTrainer, HyperParams
 from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
 from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
 from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
@@ -17,7 +17,7 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)
 # Create a HyperParams object
 hyper_params = HyperParams(
     name="gpt2-falcon-refinedweb",
-    lr=1e-5,
+    lr=1e-4,
     steps=50000,
     batch_size=2,
     warmup_steps=0,
@@ -34,7 +34,7 @@ optimizer = optax.adam(hyper_params.lr)
 port = portpicker.pick_unused_port()
 jax.distributed.initialize(f'localhost:{port}', num_processes=1, process_id=0)
 
-trainer = LMTrainer(
+trainer = ShardedLMTrainer(
     model=FlaxGPT2ForCausalLMModule(config=model_config),
     optimizer=optimizer,
     loss_fn=cross_entropy_loss_and_accuracy,

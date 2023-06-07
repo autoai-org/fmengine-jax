@@ -1,7 +1,6 @@
 """
 Trainer class
 """
-
 import os
 import jax
 import wandb
@@ -52,7 +51,8 @@ class BaseTrainer():
         )
         self.meta = {
             'current_step': -1,
-            'current_loss': -1
+            'current_loss': -1,
+            'ds': None,
         }
 
     def fit(self, dataset: FMTrainerDataset):
@@ -72,6 +72,8 @@ class BaseTrainer():
             
             if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
                 train_state = self.restore(rng)
+                dataset.load_state_dict(self.meta['ds'])
+                logger.info(f"dataset status: {dataset.state_dict()}")
             else:
                 train_state = self.initialize(rng)
             with progress:
@@ -86,7 +88,8 @@ class BaseTrainer():
                     train_state, rng, metrics = self.sharded_train_step(train_state, rng, batch)
                     self.meta = {
                         'current_step': i,
-                        'current_loss': float(metrics['loss'])
+                        'current_loss': float(metrics['loss']),
+                        'ds': dataset.state_dict()
                     }
                     wandb.log({
                         "loss": float(metrics['loss'])
@@ -131,7 +134,8 @@ class BaseTrainer():
     def initialize(self, rng):
         self.meta = {
             'current_step': 0,
-            'current_loss': -1
+            'current_loss': -1,
+            'ds': None
         }
         logger.info(
             f"Cannot load train state from checkpoint, initializing from scratch...")

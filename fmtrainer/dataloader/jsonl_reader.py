@@ -26,7 +26,6 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
         self.chunk_size = seq_len * batch_size
 
     def state_dict(self):
-        
         return {
             "iter_count": self.iter_count,
             "token_buffer": self.token_buffer,
