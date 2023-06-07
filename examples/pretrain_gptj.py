@@ -40,6 +40,7 @@ hyper_params = HyperParams(
     ckpt_step=5000,
     ckpt_max_to_keep=3,
     dtype=jnp.int32,
+    mesh_dims='1,1,-1',
 )
 
 # create optimizer
