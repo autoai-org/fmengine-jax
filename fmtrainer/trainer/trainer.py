@@ -5,13 +5,13 @@ from typing import Callable, TypedDict, Optional
 import haiku as hk
 from optax import GradientTransformation
 from flax.training.train_state import TrainState
-from jax.experimental.pjit import with_sharding_constraint
 
 from fmtrainer.utils.rng import RNGGen
-from fmtrainer.trainer.hyperparams import HyperParams
-from fmtrainer.modelling._base import FlaxPreTrainedModel
 from fmtrainer.trainer._base import BaseTrainer
 from fmtrainer.utils.global_norm import global_norm
+from fmtrainer.trainer.hyperparams import HyperParams
+from fmtrainer.modelling._base import FlaxPreTrainedModel
+from fmtrainer.parallelism.partition import with_sharding_constraint
 
 class ShardedLMTrainer(BaseTrainer):
     def __init__(

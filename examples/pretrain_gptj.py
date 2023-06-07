@@ -12,7 +12,7 @@ from fmtrainer.modelling.language.gptj.gptj_config import GPTJConfig, GPTJ_STAND
 from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
 from fmtrainer.modelling.language.gptj.gptj_model import FlaxGPTJForCausalLMModule
 
-model_config = GPTJConfig.from_dict(GPTJ_STANDARD_CONFIGS["6b"])
+model_config = GPTJConfig.from_dict(GPTJ_STANDARD_CONFIGS["debug"])
 
 tokenizer = AutoTokenizer.from_pretrained(
     "EleutherAI/gpt-j-6B",
@@ -40,7 +40,7 @@ hyper_params = HyperParams(
     ckpt_step=5000,
     ckpt_max_to_keep=3,
     dtype=jnp.int32,
-    mesh_dims='1,1,-1',
+    mesh_dims='1,1,1',
 )
 
 # create optimizer

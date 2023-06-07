@@ -5,6 +5,8 @@ import jax.numpy as jnp
 from jax.experimental.pjit import pjit
 from jax.sharding import PartitionSpec as PS
 from fmtrainer.utils.trees import named_tree_map
+from jax.interpreters import pxla
+from jax.experimental.pjit import with_sharding_constraint as _with_sharding_constraint
 
 def match_partition_rules(rules, params):
     """
@@ -68,3 +70,33 @@ def make_shard_and_gather_fns(partition_specs, dtype_specs=None):
             make_gather_fn, partition_specs, dtype_specs
         )
     return shard_fns, gather_fns
+
+def get_names_from_parition_spec(partition_specs):
+    """ Return axis names from partition specs. """
+    names = set()
+    if isinstance(partition_specs, dict):
+        partition_specs = partition_specs.values()
+    for item in partition_specs:
+        if item is None:
+            continue
+        elif isinstance(item, str):
+            names.add(item)
+        else:
+            names.update(get_names_from_parition_spec(item))
+
+    return list(names)
+
+def names_in_current_mesh(*names):
+    """ Check if current mesh axes contain these names. """
+    mesh_axis_names = pxla.thread_resources.env.physical_mesh.axis_names
+    return set(names) <= set(mesh_axis_names)
+
+
+def with_sharding_constraint(x, partition_specs):
+    """ A smarter version of with_sharding_constraint that only applies the
+        constraint if the current mesh contains the axes in the partition specs.
+    """
+    axis_names = get_names_from_parition_spec(partition_specs)
+    if names_in_current_mesh(*axis_names):
+        x = _with_sharding_constraint(x, partition_specs)
+    return x
