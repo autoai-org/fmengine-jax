@@ -609,17 +609,8 @@ class FlaxLLaMAModule(nn.Module):
             attentions=outputs[-1],
         )
 
-@add_start_docstrings("", "")
 class FlaxLLaMAModel(FlaxLLaMAPreTrainedModel):
     module_class = FlaxLLaMAModule
-
-# append_call_sample_docstring(
-#     FlaxLLaMAModel,
-#     _TOKENIZER_FOR_DOC,
-#     _CHECKPOINT_FOR_DOC,
-#     FlaxCausalLMOutput,
-#     _CONFIG_FOR_DOC,
-# )
 
 class FlaxLLaMAForCausalLMModule(nn.Module):
     config: LLaMAConfig

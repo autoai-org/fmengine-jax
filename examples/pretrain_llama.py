@@ -12,8 +12,9 @@ from fmtrainer.modelling.language.llama.llama_config import LLaMAConfig, LLAMA_S
 from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
 from fmtrainer.modelling.language.llama.llama_model import FlaxLLaMAForCausalLMModule
 
-model_config = LLaMAConfig(**LLAMA_STANDARD_CONFIGS['debug'])
-tokenizer = AutoTokenizer.from_pretrained("EleutherAI/pythia-2.8b")
+model_config = LLaMAConfig.from_dict(LLAMA_STANDARD_CONFIGS["debug"])
+print(model_config)
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
 # Create a HyperParams object
 hyper_params = HyperParams(
@@ -26,7 +27,7 @@ hyper_params = HyperParams(
     accumulate_gradient_steps=4,
     seq_len=1024,
     seed=42,
-    ckpt_dir=".cache/llama_checkpoints/",
+    ckpt_dir=".cache/gpt2/",
     ckpt_step=5000,
     ckpt_max_to_keep=3,
     dtype=jnp.int32,
@@ -39,7 +40,7 @@ port = portpicker.pick_unused_port()
 jax.distributed.initialize(f'localhost:{port}', num_processes=1, process_id=0)
 
 trainer = ShardedLMTrainer(
-    model=FlaxLLaMAForCausalLMModule(config=model_config),
+    model=FlaxLLaMAForCausalLMModule(config=model_config, dtype=jnp.float32),
     optimizer=optimizer,
     optimizer_info=optimizer_info,
     loss_fn=cross_entropy_loss_and_accuracy,
