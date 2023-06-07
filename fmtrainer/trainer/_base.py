@@ -70,7 +70,6 @@ class BaseTrainer():
         mesh = self.model.config.get_jax_mesh(self.hyperparams.mesh_dims)
         with mesh:
             rng = RNGGen.from_seed(self.hyperparams.seed)()
-            
             if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
                 train_state = self.restore(rng)
                 dataset.load_state_dict(self.meta['ds'])
@@ -78,7 +77,7 @@ class BaseTrainer():
             else:
                 train_state = self.initialize(rng)
             with progress:
-                task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']}>"
+                task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']:.5f}>"
                 train_task = progress.add_task(
                     task,
                     total=self.hyperparams.steps+self.meta['current_step'],
@@ -103,7 +102,7 @@ class BaseTrainer():
                             'train_state': train_state,
                             'meta': self.meta
                         })
-                    task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']}>"
+                    task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']:.5f}>"
                     progress.update(
                         task_id=train_task,
                         description=task,
@@ -139,7 +138,8 @@ class BaseTrainer():
         self.meta = {
             'current_step': 0,
             'current_loss': -1,
-            'ds': None
+            'ds': None,
+            'lr': self.hyperparams.lr,
         }
         logger.info(
             f"Cannot load train state from checkpoint, initializing from scratch...")
