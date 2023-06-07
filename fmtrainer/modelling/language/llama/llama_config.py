@@ -91,7 +91,11 @@ class LLaMAConfig(PretrainedConfig):
             tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )
-
+    
+    @staticmethod
+    def rng_keys():
+        return ('params', 'dropout', 'fcm')
+    
     @staticmethod
     def get_partition_rules():
         return (

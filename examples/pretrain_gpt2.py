@@ -29,7 +29,7 @@ hyper_params = HyperParams(
     ckpt_dir="./cache/checkpoints/",
     ckpt_step=5000,
     ckpt_max_to_keep=3,
-    dtype=jnp.float32,
+    dtype=jnp.int32,
 )
 
 # create optimizer

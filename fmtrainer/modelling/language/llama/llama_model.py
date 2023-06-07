@@ -712,20 +712,9 @@ class FlaxLLaMAForCausalLM(FlaxLLaMAPreTrainedModel):
         model_kwargs["position_ids"] = model_kwargs["position_ids"][:, -1:] + 1
         return model_kwargs
 
-# append_call_sample_docstring(
-#     FlaxGPTJForCausalLM,
-#     _TOKENIZER_FOR_DOC,
-#     _CHECKPOINT_FOR_DOC,
-#     FlaxCausalLMOutput,
-#     _CONFIG_FOR_DOC,
-# )
-
-
-
 VOCAB_FILES_NAMES = {"vocab_file": "tokenizer.model"}
 
 PRETRAINED_VOCAB_FILES_MAP = {}
-
 
 class LLaMATokenizer(PreTrainedTokenizer):
     """

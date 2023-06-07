@@ -21,7 +21,6 @@ class ShardedLMTrainer(BaseTrainer):
         optimizer_info: dict,
         loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray],
         hyperparams: HyperParams,
-        scheduler: Optional[dict] = None,
     ) -> None:
 
         super().__init__(
