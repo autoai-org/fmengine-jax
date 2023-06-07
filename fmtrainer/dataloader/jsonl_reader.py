@@ -1,7 +1,6 @@
 import jax.numpy as jnp
-from itertools import cycle
-from transformers import AutoTokenizer
 from datasets import Dataset
+from transformers import AutoTokenizer
 from fmtrainer.dataloader._base import FMTrainerDataset
 
 class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
@@ -59,10 +58,3 @@ class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
             except Exception as e:
                 raise e
 
-    def get_stream(self):
-        return cycle(self.get_sequence())
-
-    def __iter__(self):
-        if self.it is None:
-            self.it = self.get_stream()
-        return self.it

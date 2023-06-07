@@ -18,6 +18,7 @@ class ShardedLMTrainer(BaseTrainer):
         self,
         model: FlaxPreTrainedModel,
         optimizer: GradientTransformation,
+        optimizer_info: dict,
         loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray],
         hyperparams: HyperParams,
         scheduler: Optional[dict] = None,
@@ -26,9 +27,9 @@ class ShardedLMTrainer(BaseTrainer):
         super().__init__(
             model,
             optimizer,
+            optimizer_info,
             loss_fn,
             hyperparams,
-            scheduler
         )
 
     def _init_params(self, rng):
@@ -60,7 +61,7 @@ class ShardedLMTrainer(BaseTrainer):
 
         sharded_batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
 
-        def loss_and_accuracy(self, params):
+        def loss_and_accuracy(params):
             logits = self.model.apply(
                 params,
                 sharded_batch["input_tokens"],
@@ -81,7 +82,7 @@ class ShardedLMTrainer(BaseTrainer):
         metrics = dict(
             loss=loss,
             accuracy=accuracy,
-            learning_rate=self.hyperparams.lr,
+            learning_rate=self.optimizer_info['learning_rate_schedule'](train_state.step),
             gradient_norm=global_norm(grads),
             param_norm=global_norm(train_state.params),
         )

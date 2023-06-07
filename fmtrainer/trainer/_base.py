@@ -26,13 +26,13 @@ class BaseTrainer():
     def __init__(self,
                  model: FlaxPreTrainedModel,
                  optimizer: GradientTransformation,
+                 optimizer_info: dict,
                  loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray],
                  hyperparams: HyperParams,
-                 scheduler: dict | None = None,
                 ) -> None:
         self.model: FlaxPreTrainedModel = model
         self.optimizer: GradientTransformation = optimizer
-        self.optimizer_args: dict = scheduler
+        self.optimizer_info: dict = optimizer_info
         self.loss_fn: Callable[[hk.Params, TypedDict], jnp.ndarray] = loss_fn
         self.hyperparams: HyperParams = hyperparams
         self.hyperparams.ckpt_dir = os.path.abspath(self.hyperparams.ckpt_dir)
@@ -52,6 +52,7 @@ class BaseTrainer():
         self.meta = {
             'current_step': -1,
             'current_loss': -1,
+            'lr': self.hyperparams.lr,
             'ds': None,
         }
 
@@ -77,11 +78,12 @@ class BaseTrainer():
             else:
                 train_state = self.initialize(rng)
             with progress:
-                task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
+                task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']}>"
                 train_task = progress.add_task(
                     task,
-                    total=self.hyperparams.steps,
-                    start=self.meta['current_step']
+                    total=self.hyperparams.steps+self.meta['current_step'],
+                    start=True,
+                    completed=self.meta['current_step'],
                 )
                 for i in range(self.meta['current_step'], self.meta['current_step']+self.hyperparams.steps):
                     batch = next(iter(dataset))
@@ -89,20 +91,22 @@ class BaseTrainer():
                     self.meta = {
                         'current_step': i,
                         'current_loss': float(metrics['loss']),
+                        'lr': float(metrics['lr']),
                         'ds': dataset.state_dict()
                     }
                     wandb.log({
-                        "loss": float(metrics['loss'])
+                        "loss": float(metrics['loss']),
+                        "lr": float(metrics['lr']),
                     })
                     if i > 0:
                         self.ckpt_manager.save(i, items={
                             'train_state': train_state,
                             'meta': self.meta
                         })
-                    task_description = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}>"
+                    task = f"[blue] Training <step={self.meta['current_step']}, loss={self.meta['current_loss']:.4f}, lr={self.meta['lr']}>"
                     progress.update(
                         task_id=train_task,
-                        description=task_description,
+                        description=task,
                         advance=1,
                     )
             logger.info(f"Training finished at step {self.meta['current_step']}")
