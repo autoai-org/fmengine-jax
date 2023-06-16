@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
-from fmtrainer.utils.rng import RNGGen
-from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
-from fmtrainer.modelling.language.gpt2.gpt2_model import FlaxGPT2ForCausalLMModule
+from fmengine.utils.rng import RNGGen
+from fmengine.modelling.language.gpt2.gpt2_config import GPT2Config
+from fmengine.modelling.language.gpt2.gpt2_model import FlaxGPT2ForCausalLMModule
 
 model_config = GPT2Config()
 model = FlaxGPT2ForCausalLMModule(config=model_config)

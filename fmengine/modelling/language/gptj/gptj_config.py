@@ -1,6 +1,6 @@
 from transformers import PretrainedConfig
 from jax.sharding import PartitionSpec
-from fmtrainer.parallelism.device import get_jax_mesh
+from fmengine.parallelism.device import get_jax_mesh
 
 class GPTJConfig(PretrainedConfig):
     r"""

@@ -1,5 +1,5 @@
 from jax.sharding import PartitionSpec
-from fmtrainer.parallelism.device import get_jax_mesh
+from fmengine.parallelism.device import get_jax_mesh
 from transformers.configuration_utils import PretrainedConfig
 
 class LLaMAConfig(PretrainedConfig):

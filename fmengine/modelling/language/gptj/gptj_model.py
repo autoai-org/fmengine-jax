@@ -3,58 +3,33 @@ import jax
 from jax import lax
 import flax.linen as nn
 import jax.numpy as jnp
-import sentencepiece as spm
-import tempfile
-from shutil import copyfile
-from typing import Optional, Union, Tuple, Dict, Any, List
 from loguru import logger
-from jax.sharding import PartitionSpec as PS
+from functools import partial
+from typing import Optional, Tuple
 from flax.linen import combine_masks, make_causal_mask
-from flax.linen import partitioning as nn_partitioning
-from jax.experimental.pjit import with_sharding_constraint
 from flax.traverse_util import flatten_dict, unflatten_dict
 from flax.linen.attention import dot_product_attention_weights
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
+from flax.linen import partitioning as nn_partitioning
 
-from transformers.tokenization_utils import PreTrainedTokenizer
-from transformers.modeling_flax_outputs import FlaxBaseModelOutput, FlaxCausalLMOutput
+from transformers.utils import add_start_docstrings
 from transformers.modeling_flax_utils import FlaxPreTrainedModel
-from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward
+from transformers.modeling_flax_outputs import FlaxBaseModelOutput, FlaxCausalLMOutput
+from transformers.generation.flax_logits_process import FlaxLogitsProcessorList
 
-from fmtrainer.modelling.language.llama.llama_config import LLaMAConfig
-from fmtrainer.modelling.common.attn_utils import precompute_freqs_cis, apply_rotary_emb
-from fmtrainer.utils.gradient_checkpoint import get_gradient_checkpoint_policy
+
+from fmengine.modelling.utils.jax_utils import ACT2FN
+from fmengine.modelling.language.gptj.gptj_config import GPTJConfig
+from fmengine.utils.gradient_checkpoint import get_gradient_checkpoint_policy
+from fmengine.modelling.common.attn_utils import create_sinusoidal_positions, apply_rotary_pos_emb
 
 remat = nn_partitioning.remat
 
-class RMSNorm(nn.Module):
-    dim: int
-    eps: float=1e-6
-    dtype: jnp.dtype=jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-
-    def setup(self) -> None:
-        self.weight = self.param(
-            'kernel',
-            nn.initializers.ones,
-            (self.dim,),
-            self.param_dtype,
-        )
-
-    def _norm(self, x: jnp.ndarray) -> jnp.ndarray:
-        return x * jax.lax.rsqrt(jnp.square(x).mean(-1, keepdims=True) + self.eps)
-
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = x.astype(jnp.promote_types(self.dtype, jnp.float32))
-        output = self._norm(x).astype(self.dtype)
-        weight = jnp.asarray(self.weight, self.dtype)
-        return output * weight
-
-class FlaxLLaMAAttention(nn.Module):
-    config: LLaMAConfig
-    dtype: jnp.dtype=jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
+class FlaxGPTJAttention(nn.Module):
+    config: GPTJConfig
+    dtype: jnp.dtype = jnp.float32
+    causal: bool = True
+    is_cross_attention: bool = False
 
     def setup(self):
         config = self.config
@@ -62,48 +37,31 @@ class FlaxLLaMAAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = self.embed_dim // self.num_heads
 
-        self.wq = nn.Dense(
-            config.num_attention_heads*self.head_dim,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
+        self.rotary_dim = config.rotary_dim
+
+        dense = partial(
+            nn.Dense,
+            self.embed_dim,
             use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
-        self.wk = nn.Dense(
-            config.num_attention_heads*self.head_dim,
             dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0, mode='fan_in',
+                distribution='normal',
+            )
         )
-        self.wv = nn.Dense(
-            config.num_attention_heads*self.head_dim,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
-        self.wo = nn.Dense(
-            config.hidden_size,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
+
+        self.q_proj, self.k_proj, self.v_proj = dense(), dense(), dense()
+        self.out_proj = dense()
 
         self.resid_dropout = nn.Dropout(rate=config.resid_pdrop)
 
-        self.causal_mask = make_causal_mask(jnp.ones((1, config.max_sequence_length), dtype="bool"), dtype="bool")
+        self.causal_mask = make_causal_mask(jnp.ones((1, config.max_position_embeddings), dtype="bool"), dtype="bool")
 
-        self.freqs_cis = precompute_freqs_cis(
-            self.head_dim,
-            config.max_sequence_length * 2,
-            dtype=self.dtype,
-        )
+        if self.rotary_dim is not None and self.rotary_dim > 0:
+            pos_embd_dim = self.rotary_dim
+        else:
+            pos_embd_dim = self.embed_dim // self.num_heads
+        self.embed_positions = create_sinusoidal_positions(config.max_position_embeddings, pos_embd_dim)
 
     def _split_heads(self, hidden_states):
         return hidden_states.reshape(hidden_states.shape[:2] + (self.num_heads, self.head_dim))
@@ -153,21 +111,37 @@ class FlaxLLaMAAttention(nn.Module):
         output_attentions: bool = False,
         fcm_mask=None,
     ):
-        xq, xk, xv = self.wq(hidden_states), self.wk(hidden_states), self.wv(hidden_states)
 
-        xq = with_sharding_constraint(xq, PS(("dp", "fsdp"), None, "mp"))
-        xk = with_sharding_constraint(xk, PS(("dp", "fsdp"), None, "mp"))
-        xv = with_sharding_constraint(xv, PS(("dp", "fsdp"), None, "mp"))
+        query = self.q_proj(hidden_states)
+        key = self.k_proj(hidden_states)
+        value = self.v_proj(hidden_states)
 
-        xq = self._split_heads(xq)
-        xk = self._split_heads(xk)
-        xv = self._split_heads(xv)
+        query = self._split_heads(query)
+        key = self._split_heads(key)
+        value = self._split_heads(value)
 
-        freqs_cis = jnp.take(self.freqs_cis, position_ids, axis=0)
+        sincos = jnp.take(self.embed_positions, position_ids, axis=0)
+        sincos = jnp.split(sincos, 2, axis=-1)
+        # Rotary position embeddings induce some weird issues in multi-host environments, so we remove activation-sharding for keys/query vectors to fix this.
+        # key = with_sharding_constraint(key, PartitionSpec("dp", None, None, None))
+        # query = with_sharding_constraint(query, PartitionSpec("dp", None, None, None))
+        if self.rotary_dim is not None and self.rotary_dim > 0:
+            k_rot = key[:, :, :, : self.rotary_dim]
+            k_pass = key[:, :, :, self.rotary_dim :]
 
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis, dtype=self.dtype)
+            q_rot = query[:, :, :, : self.rotary_dim]
+            q_pass = query[:, :, :, self.rotary_dim :]
 
-        query_length, key_length = xq.shape[1], xk.shape[1]
+            k_rot = apply_rotary_pos_emb(k_rot, sincos)
+            q_rot = apply_rotary_pos_emb(q_rot, sincos)
+
+            key = jnp.concatenate([k_rot, k_pass], axis=-1)
+            query = jnp.concatenate([q_rot, q_pass], axis=-1)
+        else:
+            key = apply_rotary_pos_emb(key, sincos)
+            query = apply_rotary_pos_emb(query, sincos)
+
+        query_length, key_length = query.shape[1], key.shape[1]
 
         if self.has_variable("cache", "cached_key"):
             mask_shift = self.variables["cache"]["cache_index"]
@@ -182,7 +156,10 @@ class FlaxLLaMAAttention(nn.Module):
         causal_mask = jnp.broadcast_to(causal_mask, (batch_size,) + causal_mask.shape[1:])
 
         attention_mask = jnp.broadcast_to(jnp.expand_dims(attention_mask, axis=(-3, -2)), causal_mask.shape)
-        attention_mask = combine_masks(attention_mask, causal_mask, fcm_mask)
+        if self.causal:
+            attention_mask = combine_masks(attention_mask, causal_mask, fcm_mask)
+        else:
+            attention_mask = attention_mask
 
         dropout_rng = None
         if not deterministic and self.config.attn_pdrop > 0.0:
@@ -191,108 +168,77 @@ class FlaxLLaMAAttention(nn.Module):
         # During fast autoregressive decoding, we feed one position at a time,
         # and cache the keys and values step by step.
         if self.has_variable("cache", "cached_key") or init_cache:
-            xk, xv, attention_mask = self._concatenate_to_cache(xk, xv, xq, attention_mask)
+            key, value, attention_mask = self._concatenate_to_cache(key, value, query, attention_mask)
 
         # transform boolean mask into float mask
         attention_bias = lax.select(
             attention_mask > 0,
             jnp.full(attention_mask.shape, 0.0).astype(self.dtype),
-            jnp.full(attention_mask.shape, jnp.finfo(self.dtype).min).astype(self.dtype),
+            jnp.full(attention_mask.shape, -1e9).astype(self.dtype),
         )
 
         # usual dot product attention
         attn_weights = dot_product_attention_weights(
-            xq,
-            xk,
+            query,
+            key,
             bias=attention_bias,
             dropout_rng=dropout_rng,
             dropout_rate=self.config.attn_pdrop,
             deterministic=deterministic,
             dtype=jnp.promote_types(self.dtype, jnp.float32),
-            precision=self.precision,
+            precision=None,
         )
-        attn_weights = with_sharding_constraint(attn_weights, PS(("dp", "fsdp"), "mp", None, None))
 
-        attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, xv, precision=self.precision)
+        attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, value)
         attn_output = self._merge_heads(attn_output)
-        attn_output = self.wo(attn_output)
+        attn_output = self.out_proj(attn_output)
         attn_output = self.resid_dropout(attn_output, deterministic=deterministic)
+
         outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
         return outputs
 
 
-class FlaxLLaMAMLP(nn.Module):
-    config: LLaMAConfig
-    dtype: jnp.dtype=jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
+class FlaxGPTJMLP(nn.Module):
+    config: GPTJConfig
+    intermediate_size: int
+    dtype: jnp.dtype = jnp.float32
 
-    def setup(self) -> None:
-        config = self.config
+    def setup(self):
+        embed_dim = self.config.hidden_size
+        kernel_init=jax.nn.initializers.variance_scaling(
+            scale=1.0, mode='fan_in',
+            distribution='normal',
+        )
 
-        self.w1 = nn.Dense(
-            config.intermediate_size,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
-        self.w2 = nn.Dense(
-            config.hidden_size,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
-        self.w3 = nn.Dense(
-            config.intermediate_size,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
-            precision=self.precision,
-        )
+        self.fc_in = nn.Dense(self.intermediate_size, dtype=self.dtype, kernel_init=kernel_init)
+        self.fc_out = nn.Dense(embed_dim, dtype=self.dtype, kernel_init=kernel_init)
+
+        self.act = ACT2FN[self.config.activation_function]
         self.dropout = nn.Dropout(rate=self.config.resid_pdrop)
 
-    def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.w2(nn.silu(self.w1(x)) * self.w3(x))
-        x = self.dropout(x, deterministic=deterministic)
-        return x
+    def __call__(self, hidden_states, deterministic: bool = True):
+        hidden_states = self.fc_in(hidden_states)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.fc_out(hidden_states)
+        hidden_states = self.dropout(hidden_states, deterministic=deterministic)
+        return hidden_states
 
 
-class FlaxLLaMABlock(nn.Module):
-    config: LLaMAConfig
-    dtype: jnp.dtype=jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
+class FlaxGPTJBlock(nn.Module):
+    config: GPTJConfig
+    dtype: jnp.dtype = jnp.float32
 
-    def setup(self) -> None:
-        self.attention = FlaxLLaMAAttention(
-            self.config,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
+    def setup(self):
+        hidden_size = self.config.hidden_size
+        inner_dim = self.config.n_inner if self.config.n_inner is not None else 4 * hidden_size
+
+        self.ln_1 = nn.LayerNorm(
+            epsilon=self.config.layer_norm_epsilon,
+            dtype=jnp.promote_types(self.dtype, jnp.float32)
         )
-        self.feed_forward = FlaxLLaMAMLP(
-            self.config,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-        )
-        self.attention_norm = RMSNorm(
-            self.config.hidden_size,
-            eps=self.config.rms_norm_eps,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        self.ffn_norm = RMSNorm(
-            self.config.hidden_size,
-            eps=self.config.rms_norm_eps,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
+        self.attn = FlaxGPTJAttention(self.config, dtype=self.dtype)
+
+        self.mlp = FlaxGPTJMLP(self.config, inner_dim, dtype=self.dtype)
 
     def __call__(
         self,
@@ -302,10 +248,12 @@ class FlaxLLaMABlock(nn.Module):
         deterministic: bool = True,
         init_cache: bool = False,
         output_attentions: bool = False,
-        fcm_mask: Optional[jnp.ndarray] = None,
+        fcm_mask=None,
     ):
-        attn_outputs = self.attention(
-            self.attention_norm(hidden_states),
+        residual = hidden_states
+        hidden_states = self.ln_1(hidden_states)
+        attn_outputs = self.attn(
+            hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
             deterministic=deterministic,
@@ -314,30 +262,27 @@ class FlaxLLaMABlock(nn.Module):
             fcm_mask=fcm_mask,
         )
         attn_output = attn_outputs[0]
-        hidden_states = hidden_states + attn_output
 
-        feed_forward_hidden_states = self.feed_forward(
-            self.ffn_norm(hidden_states),
-            deterministic=deterministic,
-        )
-        hidden_states = hidden_states + feed_forward_hidden_states
+        feed_forward_hidden_states = self.mlp(hidden_states, deterministic=deterministic)
+        # residual connection
+        hidden_states = attn_output + feed_forward_hidden_states + residual
 
         return (hidden_states,) + attn_outputs[1:]
 
 
-class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
+class FlaxGPTJPreTrainedModel(FlaxPreTrainedModel):
     """
     An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
     models.
     """
 
-    config_class = LLaMAConfig
+    config_class = GPTJConfig
     base_model_prefix = "transformer"
     module_class: nn.Module = None
 
     def __init__(
         self,
-        config: LLaMAConfig,
+        config: GPTJConfig,
         input_shape: Tuple = (1, 1),
         seed: int = 0,
         dtype: jnp.dtype = jnp.float32,
@@ -356,7 +301,7 @@ class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
         rngs = {"params": params_rng, "dropout": dropout_rng}
 
         if self.config.add_cross_attention:
-            encoder_hidden_states = jnp.zeros(input_shape + (self.config.hidden_size,))
+            encoder_hidden_states = jnp.zeros(input_shape + (self.config.n_embd,))
             encoder_attention_mask = attention_mask
             module_init_outputs = self.module.init(
                 rngs,
@@ -401,7 +346,14 @@ class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
         )
         return init_variables["cache"]
 
-    @add_start_docstrings_to_model_forward("")
+    def _get_logits_processor(self,*args, **kwargs) -> FlaxLogitsProcessorList:
+        processors = super()._get_logits_processor(*args, **kwargs)
+        def squash_extra_tokens(input_ids, scores, cur_len):
+            return scores.at[:, self.config.n_real_tokens:].set(-float('inf'))
+
+        processors.append(squash_extra_tokens)
+        return processors
+
     def __call__(
         self,
         input_ids,
@@ -472,22 +424,22 @@ class FlaxLLaMAPreTrainedModel(FlaxPreTrainedModel):
         return outputs
 
 
-class FlaxLLaMABlockCollection(nn.Module):
-    config: LLaMAConfig
+class FlaxGPTJBlockCollection(nn.Module):
+    config: GPTJConfig
     dtype: jnp.dtype = jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
 
     def setup(self):
-        block = FlaxLLaMABlock
-        if self.config.gradient_checkpointing != '':
-            FlaxLLaMACheckpointBlock = remat(
+        block = FlaxGPTJBlock
+        if self.config.gradient_checkpointing:
+            FlaxGPT2CheckpointBlock = remat(
                 block, static_argnums=(3, 4, 5),
-                policy=get_gradient_checkpoint_policy(self.config.gradient_checkpointing)
+                policy=get_gradient_checkpoint_policy(
+                    self.config.gradient_checkpointing_policy
+                )
             )
-            block = FlaxLLaMACheckpointBlock
+            block = FlaxGPT2CheckpointBlock
         self.blocks = [
-            block(self.config, name=str(i), dtype=self.dtype, param_dtype=self.param_dtype, precision=self.precision) for i in range(self.config.num_hidden_layers)
+            block(self.config, name=str(i), dtype=self.dtype) for i in range(self.config.num_hidden_layers)
         ]
 
     def __call__(
@@ -545,11 +497,9 @@ class FlaxLLaMABlockCollection(nn.Module):
         return outputs
 
 
-class FlaxLLaMAModule(nn.Module):
-    config: LLaMAConfig
+class FlaxGPTJModule(nn.Module):
+    config: GPTJConfig
     dtype: jnp.dtype = jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
 
     def setup(self):
         self.embed_dim = self.config.hidden_size
@@ -558,12 +508,13 @@ class FlaxLLaMAModule(nn.Module):
             self.config.vocab_size,
             self.config.hidden_size,
             embedding_init=jax.nn.initializers.normal(stddev=self.config.initializer_range),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
         )
         self.dropout = nn.Dropout(rate=self.config.embd_pdrop)
-        self.h = FlaxLLaMABlockCollection(self.config, dtype=self.dtype, param_dtype=self.param_dtype, precision=self.precision)
-        self.ln_f = RMSNorm(self.config.hidden_size, eps=self.config.rms_norm_eps, dtype=self.dtype, param_dtype=self.param_dtype)
+        self.h = FlaxGPTJBlockCollection(self.config, dtype=self.dtype)
+        self.ln_f = nn.LayerNorm(
+            epsilon=self.config.layer_norm_epsilon,
+            dtype=jnp.promote_types(self.dtype, jnp.float32)
+        )
 
     def __call__(
         self,
@@ -609,24 +560,22 @@ class FlaxLLaMAModule(nn.Module):
             attentions=outputs[-1],
         )
 
-class FlaxLLaMAModel(FlaxLLaMAPreTrainedModel):
-    module_class = FlaxLLaMAModule
+class FlaxGPTJModel(FlaxGPTJPreTrainedModel):
+    module_class = FlaxGPTJModule
 
-class FlaxLLaMAForCausalLMModule(nn.Module):
-    config: LLaMAConfig
+class FlaxGPTJForCausalLMModule(nn.Module):
+    config: GPTJConfig
     dtype: jnp.dtype = jnp.float32
-    param_dtype: jnp.dtype=jnp.float32
-    precision: Optional[Union[jax.lax.Precision, str]]=None
 
     def setup(self):
-        self.transformer = FlaxLLaMAModule(self.config, dtype=self.dtype)
+        self.transformer = FlaxGPTJModule(self.config, dtype=self.dtype)
         self.lm_head = nn.Dense(
             self.config.vocab_size,
             dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            use_bias=False,
-            kernel_init=jax.nn.initializers.normal(stddev=self.config.initializer_range),
-            precision=self.precision,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0, mode='fan_in',
+                distribution='normal',
+            )
         )
 
     def __call__(
@@ -648,6 +597,7 @@ class FlaxLLaMAForCausalLMModule(nn.Module):
                 jnp.clip(jnp.cumsum(attention_mask, axis=-1) - 1, a_min=0),
                 (batch_size, seq_length)
             )
+
         outputs = self.transformer(
             input_ids,
             attention_mask,
@@ -672,10 +622,8 @@ class FlaxLLaMAForCausalLMModule(nn.Module):
 
         return FlaxCausalLMOutput(logits=lm_logits, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
 
-
-@add_start_docstrings("", "")
-class FlaxLLaMAForCausalLM(FlaxLLaMAPreTrainedModel):
-    module_class = FlaxLLaMAForCausalLMModule
+class FlaxGPTJForCausalLM(FlaxGPTJPreTrainedModel):
+    module_class = FlaxGPTJForCausalLMModule
 
     def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: Optional[jnp.DeviceArray] = None):
         # initializing the cache
@@ -702,188 +650,3 @@ class FlaxLLaMAForCausalLM(FlaxLLaMAPreTrainedModel):
         model_kwargs["past_key_values"] = model_outputs.past_key_values
         model_kwargs["position_ids"] = model_kwargs["position_ids"][:, -1:] + 1
         return model_kwargs
-
-VOCAB_FILES_NAMES = {"vocab_file": "tokenizer.model"}
-
-PRETRAINED_VOCAB_FILES_MAP = {}
-
-class LLaMATokenizer(PreTrainedTokenizer):
-    """
-    Construct a LLaMA tokenizer. Based on byte-level Byte-Pair-Encoding.
-    Args:
-        vocab_file (`str`):
-            Path to the vocabulary file.
-    """
-
-    vocab_files_names = VOCAB_FILES_NAMES
-    pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
-    model_input_names = ["input_ids", "attention_mask"]
-
-    def __init__(
-        self,
-        vocab_file,
-        unk_token="<unk>",
-        bos_token="<s>",
-        eos_token="</s>",
-        sp_model_kwargs: Optional[Dict[str, Any]] = None,
-        add_bos_token=False,
-        add_eos_token=False,
-        **kwargs,
-    ):
-        self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
-        super().__init__(bos_token=bos_token, eos_token=eos_token, unk_token=unk_token, **kwargs)
-        self.vocab_file = vocab_file
-        self.add_bos_token = add_bos_token
-        self.add_eos_token = add_eos_token
-        self.sp_model = spm.SentencePieceProcessor(**self.sp_model_kwargs)
-
-        with tempfile.NamedTemporaryFile() as tfile:
-            with open(self.vocab_file, 'rb') as fin:
-                tfile.write(fin.read())
-                tfile.flush()
-                tfile.seek(0)
-            self.sp_model.Load(tfile.name)
-        """ Initialisation"""
-        self.add_special_tokens(dict(
-            unk_token=unk_token,
-            bos_token=bos_token,
-            eos_token=eos_token,
-        ))
-        self.pad_token_id = self.unk_token_id
-
-    @property
-    def vocab_size(self):
-        """Returns vocab size"""
-        return self.sp_model.get_piece_size()
-
-    @property
-    def bos_token_id(self) -> Optional[int]:
-        return self.sp_model.bos_id()
-
-    @property
-    def eos_token_id(self) -> Optional[int]:
-        return self.sp_model.eos_id()
-
-    def get_vocab(self):
-        """Returns vocab as a dict"""
-        vocab = {self.convert_ids_to_tokens(i): i for i in range(self.vocab_size)}
-        vocab.update(self.added_tokens_encoder)
-        return vocab
-
-    def _tokenize(self, text):
-        """Returns a tokenized string."""
-        return self.sp_model.encode(text, out_type=str)
-
-    def _convert_token_to_id(self, token):
-        """Converts a token (str) in an id using the vocab."""
-        return self.sp_model.piece_to_id(token)
-
-    def _convert_id_to_token(self, index):
-        """Converts an index (integer) in a token (str) using the vocab."""
-        token = self.sp_model.IdToPiece(index)
-        return token
-
-    def convert_tokens_to_string(self, tokens):
-        """Converts a sequence of tokens (string) in a single string."""
-        current_sub_tokens = []
-        out_string = ""
-        prev_is_special = False
-        for token in tokens:
-            # make sure that special tokens are not decoded using sentencepiece model
-            if token in self.all_special_tokens:
-                if not prev_is_special:
-                    out_string += " "
-                out_string += self.sp_model.decode(current_sub_tokens) + token
-                prev_is_special = True
-                current_sub_tokens = []
-            else:
-                current_sub_tokens.append(token)
-                prev_is_special = False
-        out_string += self.sp_model.decode(current_sub_tokens)
-        return out_string.strip()
-
-    def save_vocabulary(self, save_directory, filename_prefix: Optional[str] = None) -> Tuple[str]:
-        """
-        Save the vocabulary and special tokens file to a directory.
-        Args:
-            save_directory (`str`):
-                The directory in which to save the vocabulary.
-        Returns:
-            `Tuple(str)`: Paths to the files saved.
-        """
-        if not os.path.isdir(save_directory):
-            logger.error(f"Vocabulary path ({save_directory}) should be a directory")
-            return
-        out_vocab_file = os.path.join(
-            save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"]
-        )
-
-        if os.path.abspath(self.vocab_file) != os.path.abspath(out_vocab_file) and os.path.isfile(self.vocab_file):
-            copyfile(self.vocab_file, out_vocab_file)
-        elif not os.path.isfile(self.vocab_file):
-            with open(out_vocab_file, "wb") as fi:
-                content_spiece_model = self.sp_model.serialized_model_proto()
-                fi.write(content_spiece_model)
-
-        return (out_vocab_file,)
-
-    def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None):
-        if self.add_bos_token:
-            bos_token_ids = [self.bos_token_id]
-        else:
-            bos_token_ids = []
-
-        output = bos_token_ids + token_ids_0
-
-        if token_ids_1 is not None:
-            output = output + token_ids_1
-
-        if self.add_eos_token:
-            output = output + [self.eos_token_id]
-
-        return output
-
-    def get_special_tokens_mask(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None, already_has_special_tokens: bool = False
-    ) -> List[int]:
-        """
-        Retrieve sequence ids from a token list that has no special tokens added. This method is called when adding
-        special tokens using the tokenizer `prepare_for_model` method.
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-            already_has_special_tokens (`bool`, *optional*, defaults to `False`):
-                Whether or not the token list is already formatted with special tokens for the model.
-        Returns:
-            `List[int]`: A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
-        """
-        if already_has_special_tokens:
-            return super().get_special_tokens_mask(
-                token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
-            )
-
-        if token_ids_1 is None:
-            return [1] + ([0] * len(token_ids_0)) + [1]
-        return [1] + ([0] * len(token_ids_0)) + [1, 1] + ([0] * len(token_ids_1)) + [1]
-
-    def create_token_type_ids_from_sequences(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
-        """
-        Create a mask from the two sequences passed to be used in a sequence-pair classification task. T5 does not make
-        use of token type ids, therefore a list of zeros is returned.
-        Args:
-            token_ids_0 (`List[int]`):
-                List of IDs.
-            token_ids_1 (`List[int]`, *optional*):
-                Optional second list of IDs for sequence pairs.
-        Returns:
-            `List[int]`: List of zeros.
-        """
-        eos = [self.eos_token_id]
-
-        if token_ids_1 is None:
-            return len(token_ids_0 + eos) * [0]
-        return len(token_ids_0 + eos + token_ids_1 + eos) * [0]

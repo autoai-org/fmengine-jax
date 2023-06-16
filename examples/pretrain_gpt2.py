@@ -5,12 +5,12 @@ import jax.numpy as jnp
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from fmtrainer.trainer.trainer import ShardedLMTrainer, HyperParams
-from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
-from fmtrainer.nn.optimizers import adamw
-from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
-from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
-from fmtrainer.modelling.language.gpt2.gpt2_model import FlaxGPT2ForCausalLMModule
+from fmengine.trainer.trainer import ShardedLMTrainer, HyperParams
+from fmengine.nn.losses import cross_entropy_loss_and_accuracy
+from fmengine.nn.optimizers import adamw
+from fmengine.modelling.language.gpt2.gpt2_config import GPT2Config
+from fmengine.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
+from fmengine.modelling.language.gpt2.gpt2_model import FlaxGPT2ForCausalLMModule
 
 model_config = GPT2Config()
 tokenizer = AutoTokenizer.from_pretrained("gpt2", use_fast=True)

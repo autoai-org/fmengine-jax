@@ -5,12 +5,12 @@ import jax.numpy as jnp
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from fmtrainer.trainer.trainer import ShardedLMTrainer, HyperParams
-from fmtrainer.nn.losses import cross_entropy_loss_and_accuracy
-from fmtrainer.nn.optimizers import adamw
-from fmtrainer.modelling.language.llama.llama_config import LLaMAConfig, LLAMA_STANDARD_CONFIGS
-from fmtrainer.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
-from fmtrainer.modelling.language.llama.llama_model import FlaxLLaMAForCausalLMModule
+from fmengine.trainer.trainer import ShardedLMTrainer, HyperParams
+from fmengine.nn.losses import cross_entropy_loss_and_accuracy
+from fmengine.nn.optimizers import adamw
+from fmengine.modelling.language.llama.llama_config import LLaMAConfig, LLAMA_STANDARD_CONFIGS
+from fmengine.dataloader.jsonl_reader import JSONLDatasetForAutoRegressiveModel
+from fmengine.modelling.language.llama.llama_model import FlaxLLaMAForCausalLMModule
 
 model_config = LLaMAConfig.from_dict(LLAMA_STANDARD_CONFIGS["debug"])
 print(model_config)

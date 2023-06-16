@@ -4,7 +4,7 @@ import numpy as np
 import jax.numpy as jnp
 from jax.experimental.pjit import pjit
 from jax.sharding import PartitionSpec as PS
-from fmtrainer.utils.trees import named_tree_map
+from fmengine.utils.trees import named_tree_map
 from jax.interpreters import pxla
 from jax.experimental.pjit import with_sharding_constraint as _with_sharding_constraint
 

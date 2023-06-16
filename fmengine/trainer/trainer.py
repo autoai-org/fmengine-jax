@@ -6,12 +6,12 @@ import haiku as hk
 from optax import GradientTransformation
 from flax.training.train_state import TrainState
 
-from fmtrainer.utils.rng import RNGGen
-from fmtrainer.trainer._base import BaseTrainer
-from fmtrainer.utils.global_norm import global_norm
-from fmtrainer.trainer.hyperparams import HyperParams
-from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.parallelism.partition import with_sharding_constraint
+from fmengine.utils.rng import RNGGen
+from fmengine.trainer._base import BaseTrainer
+from fmengine.utils.global_norm import global_norm
+from fmengine.trainer.hyperparams import HyperParams
+from fmengine.modelling._base import FlaxPreTrainedModel
+from fmengine.parallelism.partition import with_sharding_constraint
 
 class ShardedLMTrainer(BaseTrainer):
     def __init__(

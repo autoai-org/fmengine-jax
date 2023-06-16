@@ -16,11 +16,11 @@ from jax.sharding import PartitionSpec as PS
 from flax.training.train_state import TrainState
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from fmtrainer.utils.rng import RNGGen
-from fmtrainer.trainer.hyperparams import HyperParams
-from fmtrainer.dataloader._base import FMTrainerDataset
-from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.parallelism.partition import match_partition_rules, make_shard_and_gather_fns
+from fmengine.utils.rng import RNGGen
+from fmengine.trainer.hyperparams import HyperParams
+from fmengine.dataloader._base import FMTrainerDataset
+from fmengine.modelling._base import FlaxPreTrainedModel
+from fmengine.parallelism.partition import match_partition_rules, make_shard_and_gather_fns
 
 class BaseTrainer():
     def __init__(self,

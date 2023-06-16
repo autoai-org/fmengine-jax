@@ -3,17 +3,17 @@ from jax import lax
 from flax import linen as nn
 from jax import numpy as jnp
 from typing import Optional, Tuple
-from fmtrainer.modelling.common.conv import Conv1D
+from fmengine.modelling.common.conv import Conv1D
 from flax.linen import combine_masks, make_causal_mask
-from fmtrainer.modelling.utils.jax_utils import ACT2FN
+from fmengine.modelling.utils.jax_utils import ACT2FN
 from flax.traverse_util import flatten_dict, unflatten_dict
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 from flax.linen.attention import dot_product_attention_weights
 
-from fmtrainer.modelling._base import FlaxPreTrainedModel
-from fmtrainer.modelling.language.gpt2.gpt2_config import GPT2Config
+from fmengine.modelling._base import FlaxPreTrainedModel
+from fmengine.modelling.language.gpt2.gpt2_config import GPT2Config
 
-from fmtrainer.modelling.language.output import (
+from fmengine.modelling.language.output import (
     FlaxBaseModelOutputWithPastAndCrossAttentions,
     FlaxCausalLMOutputWithCrossAttentions,
 )

@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from datasets import Dataset
 from transformers import AutoTokenizer
-from fmtrainer.dataloader._base import FMTrainerDataset
+from fmengine.dataloader._base import FMTrainerDataset
 
 class JSONLDatasetForAutoRegressiveModel(FMTrainerDataset):
     def __init__(

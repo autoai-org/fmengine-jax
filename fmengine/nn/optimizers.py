@@ -1,5 +1,5 @@
 import optax
-from fmtrainer.trainer.hyperparams import HyperParams
+from fmengine.trainer.hyperparams import HyperParams
 import jax.numpy as jnp
 
 def adamw(hyper_params: HyperParams):
