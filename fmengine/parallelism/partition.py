@@ -24,8 +24,7 @@ def match_partition_rules(rules, params):
     return named_tree_map(get_partition_spec, params, sep='/')
 
 def make_shard_and_gather_fns(partition_specs, dtype_specs=None):
-    """ Create pytree of sharding and gathering functions from pytree of
-        partition specs.
+    """ Create pytree of sharding and gathering functions from pytree of partition specs.
     """
     float_dtypes = (jnp.bfloat16, jnp.float16, jnp.float32, jnp.float64)
 

@@ -16,3 +16,4 @@ orbax-checkpoint
 portpicker
 wandb
 sentencepiece
+jax-smi

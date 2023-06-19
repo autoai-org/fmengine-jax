@@ -68,6 +68,7 @@ class BaseTrainer():
             # Track hyperparameters and run metadata
             config=self.hyperparams)
         mesh = self.model.config.get_jax_mesh(self.hyperparams.mesh_dims)
+        print(mesh)
         with mesh:
             rng = RNGGen.from_seed(self.hyperparams.seed)()
             if os.path.exists(self.hyperparams.ckpt_dir) and os.listdir(self.hyperparams.ckpt_dir):
@@ -119,6 +120,7 @@ class BaseTrainer():
         self.train_state_partition = match_partition_rules(
             self.model.config.get_partition_rules(), train_state_shapes
         )
+        print(self.train_state_partition)
         self.shard_fns, self.gather_fns = make_shard_and_gather_fns(
             self.train_state_partition, train_state_shapes
         )

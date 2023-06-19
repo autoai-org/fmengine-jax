@@ -59,7 +59,7 @@ class ShardedLMTrainer(BaseTrainer):
         rng_gen = RNGGen(rng)
 
         sharded_batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
-
+        
         def loss_and_accuracy(params):
             logits = self.model.apply(
                 params,

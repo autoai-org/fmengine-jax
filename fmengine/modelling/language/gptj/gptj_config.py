@@ -1,5 +1,5 @@
 from transformers import PretrainedConfig
-from jax.sharding import PartitionSpec
+from jax.sharding import PartitionSpec, Mesh
 from fmengine.parallelism.device import get_jax_mesh
 
 class GPTJConfig(PretrainedConfig):
@@ -126,15 +126,12 @@ class GPTJConfig(PretrainedConfig):
         return ('params', 'dropout', 'fcm')
     
     @staticmethod
-    def get_jax_mesh(axis_dims):
+    def get_jax_mesh(axis_dims) -> Mesh:
         return get_jax_mesh(axis_dims, ('dp', 'fsdp', 'mp'))
 
     @staticmethod
     def get_partition_rules():
-        """ Parition rules for GPTJ. Note that these rules are orderd, so that
-            the beginning rules match first. It is important to use
-            PartitionSpec() instead of None here because JAX does not treat
-            None as a pytree leaf.
+        """ Parition rules for GPTJ. Note that these rules are orderd, so that the beginning rules match first. It is important to use PartitionSpec() instead of None here because JAX does not treat None as a pytree leaf.
         """
         return (
             ('transformer/wte/embedding', PartitionSpec('mp', 'fsdp')),
@@ -176,7 +173,7 @@ GPTJ_STANDARD_CONFIGS = {
         "vocab_size": 50400,
         "n_positions": 2048,
         "n_embd": 2048,
-        "n_layer": 14,
+        "n_layer": 20,
         "n_head": 16,
         "rotary_dim": 64,
         "n_inner": None,
