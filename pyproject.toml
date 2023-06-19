@@ -1,0 +1,21 @@
+[project]
+name = "fmengine"
+version = "0.0.1"
+authors = [
+  { name="Xiaozhe Yao", email="askxzyao@gmail.com" },
+]
+description = "FMEngine is a Python library for Foundation Models."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+[tool.setuptools]
+package-dir = {"" = "fmengine"}
+
+[project.urls]
+"Homepage" = "https://github.com/autoai-org/fmengine"
+"Bug Tracker" = "https://github.com/autoai-org/fmengine/issues"
+

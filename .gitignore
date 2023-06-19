@@ -4,3 +4,6 @@
 docs/build
 wandb/
 *.sif
+build/
+dist/
+*.egg-info/

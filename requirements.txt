@@ -17,3 +17,4 @@ portpicker
 wandb
 sentencepiece
 jax-smi
+twine
