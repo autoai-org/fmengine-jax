@@ -4,115 +4,13 @@ from jax.core import Tracer
 from dataclasses import fields
 from collections import OrderedDict
 from typing import Dict, Optional, Tuple, Any
-
+from fmengine.utils.outputs import BaseOutput
 def is_tensor(x):
     return isinstance(x, (jnp.ndarray, Tracer))
-    
-class ModelOutput(OrderedDict):
-    """
-    Base class for all model outputs as dataclass. Has a `__getitem__` that allows indexing by integer or slice (like a
-    tuple) or strings (like a dictionary) that will ignore the `None` attributes. Otherwise behaves like a regular
-    python dictionary.
 
-    <Tip warning={true}>
 
-    You can't unpack a `ModelOutput` directly. Use the [`~utils.ModelOutput.to_tuple`] method to convert it to a tuple
-    before.
-
-    </Tip>
-    """
-
-    def __post_init__(self):
-        class_fields = fields(self)
-
-        # Safety and consistency checks
-        if not len(class_fields):
-            raise ValueError(f"{self.__class__.__name__} has no fields.")
-        if not all(field.default is None for field in class_fields[1:]):
-            raise ValueError(f"{self.__class__.__name__} should not have more than one required field.")
-
-        first_field = getattr(self, class_fields[0].name)
-        other_fields_are_none = all(getattr(self, field.name) is None for field in class_fields[1:])
-
-        if other_fields_are_none and not is_tensor(first_field):
-            if isinstance(first_field, dict):
-                iterator = first_field.items()
-                first_field_iterator = True
-            else:
-                try:
-                    iterator = iter(first_field)
-                    first_field_iterator = True
-                except TypeError:
-                    first_field_iterator = False
-
-            # if we provided an iterator as first field and the iterator is a (key, value) iterator
-            # set the associated fields
-            if first_field_iterator:
-                for idx, element in enumerate(iterator):
-                    if (
-                        not isinstance(element, (list, tuple))
-                        or not len(element) == 2
-                        or not isinstance(element[0], str)
-                    ):
-                        if idx == 0:
-                            # If we do not have an iterator of key/values, set it as attribute
-                            self[class_fields[0].name] = first_field
-                        else:
-                            # If we have a mixed iterator, raise an error
-                            raise ValueError(
-                                f"Cannot set key/value for {element}. It needs to be a tuple (key, value)."
-                            )
-                        break
-                    setattr(self, element[0], element[1])
-                    if element[1] is not None:
-                        self[element[0]] = element[1]
-            elif first_field is not None:
-                self[class_fields[0].name] = first_field
-        else:
-            for field in class_fields:
-                v = getattr(self, field.name)
-                if v is not None:
-                    self[field.name] = v
-
-    def __delitem__(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``__delitem__`` on a {self.__class__.__name__} instance.")
-
-    def setdefault(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``setdefault`` on a {self.__class__.__name__} instance.")
-
-    def pop(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``pop`` on a {self.__class__.__name__} instance.")
-
-    def update(self, *args, **kwargs):
-        raise Exception(f"You cannot use ``update`` on a {self.__class__.__name__} instance.")
-
-    def __getitem__(self, k):
-        if isinstance(k, str):
-            inner_dict = dict(self.items())
-            return inner_dict[k]
-        else:
-            return self.to_tuple()[k]
-
-    def __setattr__(self, name, value):
-        if name in self.keys() and value is not None:
-            # Don't call self.__setitem__ to avoid recursion errors
-            super().__setitem__(name, value)
-        super().__setattr__(name, value)
-
-    def __setitem__(self, key, value):
-        # Will raise a KeyException if needed
-        super().__setitem__(key, value)
-        # Don't call self.__setattr__ to avoid recursion errors
-        super().__setattr__(key, value)
-
-    def to_tuple(self) -> Tuple[Any]:
-        """
-        Convert self to a tuple containing all the attributes/keys that are not `None`.
-        """
-        return tuple(self[k] for k in self.keys())
-    
 @flax.struct.dataclass
-class FlaxBaseModelOutput(ModelOutput):
+class FlaxBaseModelOutput(BaseOutput):
     """
     Base class for model's outputs, with potential hidden states and attentions.
 
@@ -138,7 +36,7 @@ class FlaxBaseModelOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithNoAttention(ModelOutput):
+class FlaxBaseModelOutputWithNoAttention(BaseOutput):
     """
     Base class for model's outputs, with potential hidden states.
 
@@ -156,7 +54,7 @@ class FlaxBaseModelOutputWithNoAttention(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithPoolingAndNoAttention(ModelOutput):
+class FlaxBaseModelOutputWithPoolingAndNoAttention(BaseOutput):
     """
     Base class for model's outputs that also contains a pooling of the last hidden states.
 
@@ -177,7 +75,7 @@ class FlaxBaseModelOutputWithPoolingAndNoAttention(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxImageClassifierOutputWithNoAttention(ModelOutput):
+class FlaxImageClassifierOutputWithNoAttention(BaseOutput):
     """
     Base class for outputs of image classification models.
 
@@ -196,7 +94,7 @@ class FlaxImageClassifierOutputWithNoAttention(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithPast(ModelOutput):
+class FlaxBaseModelOutputWithPast(BaseOutput):
     """
     Base class for model's outputs, with potential hidden states and attentions.
 
@@ -226,7 +124,7 @@ class FlaxBaseModelOutputWithPast(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithPooling(ModelOutput):
+class FlaxBaseModelOutputWithPooling(BaseOutput):
     """
     Base class for model's outputs that also contains a pooling of the last hidden states.
 
@@ -257,7 +155,7 @@ class FlaxBaseModelOutputWithPooling(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithPoolingAndCrossAttentions(ModelOutput):
+class FlaxBaseModelOutputWithPoolingAndCrossAttentions(BaseOutput):
     """
     Base class for model's outputs that also contains a pooling of the last hidden states.
 
@@ -306,7 +204,7 @@ class FlaxBaseModelOutputWithPoolingAndCrossAttentions(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxBaseModelOutputWithPastAndCrossAttentions(ModelOutput):
+class FlaxBaseModelOutputWithPastAndCrossAttentions(BaseOutput):
     """
     Base class for model's outputs that may also contain a past key/values (to speed up sequential decoding).
 
@@ -352,7 +250,7 @@ class FlaxBaseModelOutputWithPastAndCrossAttentions(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxSeq2SeqModelOutput(ModelOutput):
+class FlaxSeq2SeqModelOutput(BaseOutput):
     """
     Base class for model encoder's outputs that also contains : pre-computed hidden states that can speed up sequential
     decoding.
@@ -413,7 +311,7 @@ class FlaxSeq2SeqModelOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxCausalLMOutputWithCrossAttentions(ModelOutput):
+class FlaxCausalLMOutputWithCrossAttentions(BaseOutput):
     """
     Base class for causal language model (or autoregressive) outputs.
 
@@ -483,7 +381,7 @@ FlaxCausalLMOutput = FlaxMaskedLMOutput
 
 
 @flax.struct.dataclass
-class FlaxSeq2SeqLMOutput(ModelOutput):
+class FlaxSeq2SeqLMOutput(BaseOutput):
     """
     Base class for sequence-to-sequence language models outputs.
 
@@ -540,7 +438,7 @@ class FlaxSeq2SeqLMOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxNextSentencePredictorOutput(ModelOutput):
+class FlaxNextSentencePredictorOutput(BaseOutput):
     """
     Base class for outputs of models predicting if two sentences are consecutive or not.
 
@@ -567,7 +465,7 @@ class FlaxNextSentencePredictorOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxSequenceClassifierOutput(ModelOutput):
+class FlaxSequenceClassifierOutput(BaseOutput):
     """
     Base class for outputs of sentence classification models.
 
@@ -593,7 +491,7 @@ class FlaxSequenceClassifierOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxSeq2SeqSequenceClassifierOutput(ModelOutput):
+class FlaxSeq2SeqSequenceClassifierOutput(BaseOutput):
     """
     Base class for outputs of sequence-to-sequence sentence classification models.
 
@@ -650,7 +548,7 @@ class FlaxSeq2SeqSequenceClassifierOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxMultipleChoiceModelOutput(ModelOutput):
+class FlaxMultipleChoiceModelOutput(BaseOutput):
     """
     Base class for outputs of multiple choice models.
 
@@ -678,7 +576,7 @@ class FlaxMultipleChoiceModelOutput(ModelOutput):
 
 
 @flax.struct.dataclass
-class FlaxTokenClassifierOutput(ModelOutput):
+class FlaxTokenClassifierOutput(BaseOutput):
     """
     Base class for outputs of token classification models.
 
