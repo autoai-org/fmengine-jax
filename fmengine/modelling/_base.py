@@ -1,25 +1,36 @@
 import gc
-import json
 import os
 import re
+import jax
+import json
+import flax.linen as nn
+import jax.numpy as jnp
 from functools import partial
 from pickle import UnpicklingError
 from typing import Any, Dict, Set, Tuple, Union
-
-import flax.linen as nn
-import jax
-import jax.numpy as jnp
 import msgpack.exceptions
 from loguru import logger
-from flax.core.frozen_dict import FrozenDict, unfreeze
-from flax.serialization import from_bytes, to_bytes
-from flax.traverse_util import flatten_dict, unflatten_dict
 from jax.random import PRNGKey
+from flax.serialization import from_bytes, to_bytes
+from flax.core.frozen_dict import FrozenDict, unfreeze
+from flax.traverse_util import flatten_dict, unflatten_dict
+from transformers.dynamic_module_utils import custom_object_save
 from transformers import GenerationConfig, PretrainedConfig, FlaxGenerationMixin
-from transformers.utils import PushToHubMixin, WEIGHTS_INDEX_NAME, WEIGHTS_NAME, is_offline_mode, FLAX_WEIGHTS_INDEX_NAME, FLAX_WEIGHTS_NAME, cached_file, is_remote_url, download_url, has_file
 from transformers.utils.hub import get_checkpoint_shard_files, convert_file_size_to_int
 from transformers.modeling_flax_pytorch_utils import load_pytorch_checkpoint_in_flax_state_dict
-from transformers.dynamic_module_utils import custom_object_save
+from transformers.utils import PushToHubMixin, WEIGHTS_INDEX_NAME, WEIGHTS_NAME, is_offline_mode, FLAX_WEIGHTS_INDEX_NAME, FLAX_WEIGHTS_NAME, cached_file, is_remote_url, download_url, has_file
+
+from fmengine.modelling._constants import CONFIG_NAME
+
+class ModelMixin():
+    """Mixin class for pretrained models."""
+    config_name = CONFIG_NAME
+    _automatically_saved_args = ["_fmengine_version", "_class_name", "_name_or_path"]
+    _flax_internal_args = ["name", "parent", "dtype"]
+    base_model_prefix = ""
+    main_input_name = "input_ids"
+    _auto_class = None
+    _missing_keys = set()
 
 def dtype_byte_size(dtype):
     """
