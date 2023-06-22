@@ -101,7 +101,6 @@ def flax_shard_checkpoint(params, max_shard_size="10GB"):
     index = {"metadata": metadata, "weight_map": weight_map}
     return shards, index
 
-
 class FlaxPreTrainedModel(PushToHubMixin, FlaxGenerationMixin):
     """
     Base class for all models.
